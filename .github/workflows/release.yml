@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to build and attach to (e.g. v0.0.1)'
+        description: 'Tag to build and attach to, created if absent (e.g. v0.0.1)'
         required: true
 
 permissions:
@@ -227,7 +227,11 @@ jobs:
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft --notes-file notes.md
             gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/* --clobber
           else
+            # --target pins the tag to the commit that was actually built.
+            # When the tag does not exist yet, this creates it, which is how a
+            # release can be cut without anyone holding tag-push rights.
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
               --draft --title "Mochi $TAG (preview)" --notes-file notes.md dist/*
           fi
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
