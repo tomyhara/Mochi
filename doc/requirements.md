@@ -3,7 +3,7 @@
 | 項目 | 内容 |
 | --- | --- |
 | ドキュメント種別 | 要件定義（Requirements Specification） |
-| バージョン | 0.4（ドラフト） |
+| バージョン | 0.5（ドラフト） |
 | 最終更新 | 2026-09-10 |
 | ステータス | **要件レベルの未決事項なし**（Q-1〜Q-10 すべて決定済み — §11.1）。残るは M0 での技術検証 |
 
@@ -235,7 +235,7 @@
 | FR-7.8a | M | 再開（FR-7.1）と新規開始（FR-7.7）の実行先を「内蔵ターミナル」「外部ターミナル」から選べる。既定は内蔵。外部起動（FR-7.3）は残す |
 | FR-7.8b | M | 内蔵ターミナルは複数同時に開ける。セッションごとにタブを持ち、リポジトリ名とツール名で識別できる |
 | FR-7.8c | M | 入力を受け付ける（対話型 CLI であるため必須）。リサイズ時に PTY へウィンドウサイズ変更を伝える |
-| FR-7.8d | M | スクロールバックの行数上限を設ける。上限超過時は古い行から破棄する（NFR-1.7 のメモリ目標を守るため） |
+| FR-7.8d | M | スクロールバックの行数上限を設ける。上限超過時は古い行から破棄する（NFR-1.7 のメモリ目標を守るため）。モックの `10,000 lines` は仮置きで、確定値は M0 のメモリ実測（§7.1 スパイク③）から決める |
 | FR-7.8e | M | 内蔵ターミナルで実行中のセッションは、Mochi が直接プロセスを把握できる。これを実行中表示（FR-4.8）の第一の情報源とし、ファイル監視による推定はフォールバックとする |
 | FR-7.8f | M | アプリ終了時に実行中のプロセスがある場合は確認を求める。ユーザーの選択なしにエージェントの作業を打ち切らない |
 | FR-7.8g | S | 内蔵ターミナルで進行中のセッションのトランスクリプトを、追記に追従して右ペインに反映する |
@@ -578,42 +578,39 @@ OpenCode はストレージ実装（JSON ファイル → SQLite）が変遷し�
 
 ### 12.2 アートボードと要件の対応
 
+2026-09-10 更新で **全 32 画面が作成済み**（[CHANGELOG-ui.md](./CHANGELOG-ui.md)）。
+
 | ID | 画面 | 主な対応要件 | 状態 |
 | --- | --- | --- | --- |
 | 1a | Three panes, fixed | — | **不採用**（代替案の記録） |
-| **1b** | **Transcript first** | FR-9.1, FR-4, FR-5, FR-8.1, NFR-3.3 | **採用 — 実装の基準** |
+| **1b** | **Transcript first**（macOS） | FR-9.1, FR-4, FR-5, FR-8.1, NFR-3.3 | **採用 — 実装の基準**。M-9 で派生版に追従が必要 |
 | 1c | Command palette / Resume dialog | FR-9.5, FR-7.1〜7.6, NFR-3.6 | 採用 |
-| 2a | Settings | FR-1, FR-2.10, FR-10.2, NFR-3.1 | 採用（M-1 要修正） |
-| 2b | Cross-repo search results | FR-6, NFR-1.3 | 採用 |
-| 2c | First run / indexing | FR-2.9, NFR-1.5 | 採用（M-3 要修正） |
-| 2d | Empty & error states（6 種） | FR-1.6, FR-2.7, FR-2.11, FR-7.6, FR-3.6 | 採用（M-2 要修正） |
+| 2a | Settings | FR-1, FR-2.10, FR-10.2, NFR-3.1 | 採用（M-1, M-4 反映済み） |
+| 2b | Cross-repo search results | FR-6, NFR-1.3, NFR-3.3 | 採用 |
+| 2c | First run / indexing | FR-2.9, NFR-1.5 | 採用（M-3 反映済み・逐次処理） |
+| 2d | Empty & error states（7 種） | FR-1.6, FR-2.7, FR-2.11, FR-7.6, FR-7.6a, FR-3.6 | 採用（M-2 反映済み） |
+| 3a | Main window（Windows） | FR-9.1, NFR-4.1, NFR-2.6 | 採用（M-7, M-8） |
+| 3b | Integrated terminal | FR-7.8〜7.8i, NFR-3.6 | 採用（M-6） |
+| 3c | Masked transcript | NFR-3.3 | 採用 |
+| 3d | Delete flow | FR-8.3〜8.3b, R-9 | 採用 |
+| 3e | Export | FR-8.4, FR-8.5 | 採用 |
+| 3f | Merge repositories | FR-3.3, FR-3.9 | 採用 |
+| 3g | Settings → Storage / Cost / About | FR-8.2, FR-10.6, FR-10.7, NFR-4b.1〜4b.3 | 採用 |
+| 3h | Subagent transcript | FR-5.7 | 採用 |
+| 3i | Light theme | FR-9.2, NFR-6.2 | 採用（アクセント `#B4453A`、5.45:1）（M-8） |
 
-### 12.3 モックの要修正事項
+### 12.3 モックの修正事項
 
-| ID | 内容 | 根拠 |
+| ラウンド | 内容 | 状態 |
 | --- | --- | --- |
-| M-1 | `2a` フッタの `config.toml · ~/.config/mochi` を OS 標準パスに直す。`~/.config/` は Linux（XDG）の慣習で対象 OS と合わない | FR-10.1 |
-| M-2 | `2d` のエラーカード `SOURCE MISSING`（本文は「作業ディレクトリが消えた」）を **`WORKING DIRECTORY MISSING`** に改名する。`source missing` は他の 3 箇所（`Archived (source missing)`／`kept in index`／初回スキャンログ）で「**トランスクリプトファイルが消えた**」の意味で使われており、別状態が同じラベルを共有している | FR-2.11 / FR-7.6（`archived` と `cwd_missing` に用語を分離済み） |
-| M-3 | `2c` の進捗が矛盾している: 全体 `1,204 of 3,182` に対し Codex が `✓ 2,041 indexed`（完了）＋ Claude Code `reading 402 / 1,032` で最低 2,443。数値を整合させる | — |
-| M-4 | `2a` の "Send anything over the network / Off, and there is no code path that would" をトグルではなく静的な表示にする。切替部品は「ON にできる」と読める | NFR-3.1 |
-| M-5 | `1a` ヘッダの `Watching · 2 running`（実行中セッション数）と `1b` フッタの `Watching 3 stores`（監視中ストア数）で "Watching" が別の対象を指している。`1b` 採用に伴い後者の表現に統一する | — |
+| 第 1（M-1〜M-5） | 設定パス／`source missing` の分離／進捗数値／ネットワーク表示／`Watching` の統一 | ✅ 反映済み |
+| 第 2（M-6〜M-10） | `$` プロンプト／diff ヘッダの `\`／主ボタンの OS 差／`1b` の追従／`ARCHIVED` の原因断定 | 軽微。実装着手前に反映。詳細は [ui-spec.md §3](./ui-spec.md) |
 
-### 12.4 モック未作成（要件はあるが画面がない）
+第 2 ラウンドのうち M-7 は仕様側の漏れが原因（[ui-spec.md §1.2](./ui-spec.md) に「パス切り替えはトランスクリプト本文に及ばない」を追記済み）。
 
-**詳細な画面仕様（文言・状態遷移レベル）は [ui-spec.md](./ui-spec.md) に記載。** ここは一覧のみ。
+### 12.4 モック未作成
 
-| 要件 | 未作成の画面 | 優先 | 仕様 |
-| --- | --- | --- | --- |
-| FR-7.8 | **内蔵ターミナル**（Q-1 で MVP 入り。モック作成時点では対象外だった） | 高 | [ui-spec §4.3](./ui-spec.md) |
-| NFR-3.3 | **マスキング適用後のトランスクリプト**。切替部品は 3 箇所にあるが適用後の見た目がない | 高 | [ui-spec §4.1](./ui-spec.md) |
-| FR-9.1 / NFR-4.1 | **Windows 版のメイン画面**。Windows 表現は Resume ダイアログのみ | 高 | [ui-spec §4.2](./ui-spec.md) |
-| FR-8.3 | **削除フロー**（Q-2 で MVP 入り。保留解除） | 高 | [ui-spec §4.4](./ui-spec.md) |
-| FR-8.4, FR-8.5 | **エクスポートダイアログ**（形式選択＋マスキング既定 ON ＋警告） | 中 | [ui-spec §4.5](./ui-spec.md) |
-| FR-3.9 | **リポジトリの手動マージ／再割り当て** | 中 | [ui-spec §4.6](./ui-spec.md) |
-| FR-8.2 / FR-10.6 | **ディスク使用量の内訳**と**単価テーブル設定**（Q-7） | 中 | [ui-spec §4.7](./ui-spec.md) |
-| NFR-4b.1 / 4b.3 | **Settings → About**（ライセンス・NOTICE・第三者ライセンス一覧）。Q-8 の Apache-2.0 採用により必要 | 中 | [ui-spec §4.7b](./ui-spec.md) |
-| FR-5.7 | **サブエージェント**への導線 | 低 | [ui-spec §4.8](./ui-spec.md) |
-| FR-9.2 | **ライトテーマ** | 低 | [ui-spec §4.9](./ui-spec.md) |
+**なし。** 要件に対応する画面はすべて作成済み。仕様の詳細は [ui-spec.md §4](./ui-spec.md)。
 
 ---
 
