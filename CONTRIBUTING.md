@@ -44,6 +44,37 @@ cargo test --workspace
 `cargo deny check` (licence and advisory policy, NFR-4b.2 / NFR-3.9) needs
 `cargo install cargo-deny`; CI installs it for you, so it is optional locally.
 
+## Browser tests for the mockups
+
+The UI mockups in `doc/` are a generated bundle, and FR-9.1 makes `1b` the
+reference the implementation is built against. `e2e/ui-mocks.spec.ts` opens the
+document in Chromium and asserts the decisions recorded in `doc/ui-spec.md` and
+`doc/CHANGELOG-ui.md` — so regenerating the mock and losing one of them fails
+the build instead of passing quietly.
+
+```sh
+npm ci
+npx playwright install chromium   # skip if your environment ships one
+npx playwright test
+./scripts/check-npm-licenses.sh
+```
+
+If Chromium is already on the machine, point the tests at it instead of
+downloading a second copy:
+
+```sh
+MOCHI_CHROMIUM_PATH=/path/to/chromium npx playwright test
+```
+
+The assertions read the *rendered text*, not the DOM. The document's elements
+and class names are generated and are not ours to depend on; the words on the
+screen are what the specification actually decided. When you change a mock,
+expect to change the matching assertion in the same commit — that is the point
+of it.
+
+This is also where the application's own end-to-end tests will live once there
+is a window to open.
+
 ## Trying the indexer
 
 `mochi-cli` is the milestone-1 deliverable: an indexer you can drive from a
