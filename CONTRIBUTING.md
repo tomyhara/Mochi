@@ -123,6 +123,25 @@ Session formats are **undocumented internals that change without notice**
 - skip an incomplete trailing line rather than failing the file (FR-2.6)
 - open source files read-only and never write to them (FR-2.5, NFR-3.5)
 
+## Cutting a release
+
+Releases are built by CI on real Windows and macOS runners — there is no way to
+produce a `.exe` or a `.dmg` from a Linux machine, and cross-compiling the
+bundled SQLite is not worth the risk of shipping something nobody ran.
+
+1. Set the version in the workspace `Cargo.toml` and commit the `Cargo.lock`
+   that comes with it.
+2. Tag it: `git tag v<version> && git push origin v<version>`.
+3. `.github/workflows/release.yml` runs from the tag, refuses to continue if
+   the tag and `Cargo.toml` disagree, runs the tests in release mode, builds a
+   Windows binary and a universal macOS binary, and attaches them to a **draft**
+   release with a `SHA256SUMS.txt`.
+4. Read the draft, then publish it yourself.
+
+Nothing is signed or notarised yet (R-7), so the notes tell people how to get
+past SmartScreen and Gatekeeper and how to check the binary against the
+checksums. Keep that section honest as long as it is true.
+
 ## Pull requests
 
 - one logical change per PR; keep the diff reviewable
