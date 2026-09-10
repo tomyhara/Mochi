@@ -259,9 +259,31 @@ jobs:
           TAG: ${{ needs.check-version.outputs.tag }}
         run: |
           set -euo pipefail
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+
+          # A draft release has no tag in git until someone publishes it, so
+          # the tags endpoint cannot find it. Match on the name it will take.
+          find_release_id() {
+            local ids
+            ids="$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+                     --jq ".[] | select(.tag_name == \"$TAG\") | .id")"
+            printf '%s' "${ids%%$'\n'*}"
+          }
+
+          id="$(find_release_id)"
+
+          if [ -n "$id" ]; then
+            # Re-running replaces what the draft holds rather than adding to
+            # it, so the release is always exactly one build. gh's --clobber
+            # cannot do this: for a draft it sees no existing assets at all,
+            # and GitHub compares asset names case insensitively, so a file
+            # whose name changed only in case is rejected as a duplicate
+            # instead of being replaced.
+            for asset in $(gh api "repos/$GITHUB_REPOSITORY/releases/$id/assets" \
+                             --paginate --jq '.[].id'); do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset"
+            done
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft --notes-file notes.md
-            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/* --clobber
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/*
           else
             # --target pins the tag to the commit that was actually built.
             # When the tag does not exist yet, this creates it, which is how a
@@ -269,5 +291,18 @@ jobs:
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --draft --title "Mochi $TAG (preview)" --notes-file notes.md dist/*
+            id="$(find_release_id)"
           fi
-          gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
+
+          # An upload that half succeeded leaves a release whose files do not
+          # match its own checksums, and nothing above would have failed. Say
+          # so here instead of letting a human find out by downloading.
+          attached="$(gh api "repos/$GITHUB_REPOSITORY/releases/$id/assets" \
+                        --paginate --jq '.[].name' | sort)"
+          expected="$(cd dist && ls -1 | sort)"
+          if [ "$attached" != "$expected" ]; then
+            echo "::error::the draft's assets do not match what was built" >&2
+            diff <(printf '%s\n' "$expected") <(printf '%s\n' "$attached") || true
+            exit 1
+          fi
+          printf '%s\n' "$attached"
