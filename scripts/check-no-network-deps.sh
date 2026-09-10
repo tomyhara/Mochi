@@ -31,11 +31,19 @@ FORBIDDEN=(
   sentry opentelemetry tracing-opentelemetry posthog-rs segment
 )
 
-metadata="$(cargo metadata --format-version 1 --locked)"
+# Cargo.lock is the resolved set: exactly what gets built and shipped. A
+# manifest's optional or dev-only dependency declarations are not, which is why
+# this reads the lock file rather than `cargo metadata`.
+if [ ! -f Cargo.lock ]; then
+  echo "error: Cargo.lock is missing; run 'cargo build' and commit it." >&2
+  exit 1
+fi
+
+resolved="$(grep -E '^name = "' Cargo.lock | sed -E 's/^name = "(.*)"$/\1/')"
 
 found=()
 for crate in "${FORBIDDEN[@]}"; do
-  if printf '%s' "$metadata" | grep -q "\"name\":\"${crate}\""; then
+  if printf '%s\n' "$resolved" | grep -qx "$crate"; then
     found+=("$crate")
   fi
 done
@@ -48,4 +56,4 @@ if [ ${#found[@]} -ne 0 ]; then
   exit 1
 fi
 
-echo "no-network check: OK (${#FORBIDDEN[@]} crate names screened)"
+echo "no-network check: OK ($(printf '%s\n' "$resolved" | wc -l | tr -d ' ') resolved crates, ${#FORBIDDEN[@]} names screened)"

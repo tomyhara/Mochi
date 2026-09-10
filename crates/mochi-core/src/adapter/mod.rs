@@ -32,6 +32,7 @@ use crate::Result;
 pub mod claude_code;
 pub mod codex;
 pub mod opencode;
+pub(crate) mod util;
 
 /// The environment an adapter reads its locations from.
 ///
@@ -46,7 +47,14 @@ pub struct EnvSource {
 impl EnvSource {
     /// The real environment of this process.
     pub fn from_process() -> EnvSource {
-        todo!()
+        let home = std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .unwrap_or_default();
+        let vars = std::env::vars()
+            .filter(|(key, _)| RELEVANT_VARS.contains(&key.as_str()))
+            .collect();
+        EnvSource { home, vars }
     }
 
     /// An environment with nothing but a home directory. Used by tests and by
@@ -68,9 +76,17 @@ impl EnvSource {
     }
 
     pub fn var(&self, key: &str) -> Option<&str> {
-        self.vars.get(key).map(String::as_str).filter(|v| !v.is_empty())
+        self.vars
+            .get(key)
+            .map(String::as_str)
+            .filter(|v| !v.is_empty())
     }
 }
+
+/// The only environment variables an adapter may look at. Listing them keeps
+/// the process environment, which can hold credentials, out of Mochi's reach
+/// except where a tool documents an override (FR-1.4).
+const RELEVANT_VARS: &[&str] = &["CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_DATA_HOME"];
 
 /// Everything Mochi needs from one CLI.
 pub trait ToolAdapter: Send + Sync {

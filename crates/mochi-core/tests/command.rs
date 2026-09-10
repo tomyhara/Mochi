@@ -16,7 +16,7 @@
 
 use std::path::{Path, PathBuf};
 
-use mochi_core::adapter::{self, ToolAdapter};
+use mochi_core::adapter;
 use mochi_core::command::{
     check_cwd_exists, external_launch, quote_cmd, quote_posix, quote_powershell, CommandSpec,
     QuoteStyle, ResumeTarget, TerminalKind,
@@ -31,13 +31,27 @@ fn resume(tool: ToolId, id: &str, cwd: &str) -> CommandSpec {
 
 #[test]
 fn each_tool_gets_its_own_resume_command() {
-    let cc = resume(ToolId::ClaudeCode, "11111111-2222-3333-4444-555555555555", "/Users/you/code/my-repo");
+    let cc = resume(
+        ToolId::ClaudeCode,
+        "11111111-2222-3333-4444-555555555555",
+        "/Users/you/code/my-repo",
+    );
     assert_eq!(cc.program, "claude");
-    assert_eq!(cc.args, vec!["--resume", "11111111-2222-3333-4444-555555555555"]);
+    assert_eq!(
+        cc.args,
+        vec!["--resume", "11111111-2222-3333-4444-555555555555"]
+    );
 
-    let cx = resume(ToolId::Codex, "019242aa-1111-7bbb-8ccc-000000000001", "/Users/you/code/my-repo");
+    let cx = resume(
+        ToolId::Codex,
+        "019242aa-1111-7bbb-8ccc-000000000001",
+        "/Users/you/code/my-repo",
+    );
     assert_eq!(cx.program, "codex");
-    assert_eq!(cx.args, vec!["resume", "019242aa-1111-7bbb-8ccc-000000000001"]);
+    assert_eq!(
+        cx.args,
+        vec!["resume", "019242aa-1111-7bbb-8ccc-000000000001"]
+    );
 
     let oc = resume(ToolId::OpenCode, "ses_EXAMPLE01", "/Users/you/code/my-repo");
     assert_eq!(oc.program, "opencode");
@@ -57,7 +71,9 @@ fn a_user_supplied_executable_path_is_honoured() {
     // FR-1.3: the CLI is not always on PATH under its plain name.
     let mut target = ResumeTarget::new("abc", PathBuf::from("/Users/you/code/my-repo"));
     target.executable = Some(PathBuf::from("/opt/tools/claude-1.0.60"));
-    let spec = adapter::for_tool(ToolId::ClaudeCode).resume_command(&target).unwrap();
+    let spec = adapter::for_tool(ToolId::ClaudeCode)
+        .resume_command(&target)
+        .unwrap();
     assert_eq!(spec.program, "/opt/tools/claude-1.0.60");
     assert_eq!(spec.args, vec!["--resume", "abc"]);
 }
@@ -70,7 +86,10 @@ fn new_session_commands_take_no_id() {
             .unwrap();
         assert_eq!(spec.cwd, Path::new("/Users/you/code/my-repo"));
         assert!(
-            !spec.args.iter().any(|a| a.contains("resume") || a.contains("--session")),
+            !spec
+                .args
+                .iter()
+                .any(|a| a.contains("resume") || a.contains("--session")),
             "{tool} new session should not resume anything: {:?}",
             spec.args
         );
@@ -84,23 +103,37 @@ fn a_hostile_session_id_stays_one_argument() {
     let evil = "abc; rm -rf ~; echo ";
     let spec = resume(ToolId::ClaudeCode, evil, "/Users/you/code/my-repo");
     assert_eq!(spec.args, vec!["--resume", evil]);
-    assert_eq!(spec.args.len(), 2, "the id must not be split into several arguments");
+    assert_eq!(
+        spec.args.len(),
+        2,
+        "the id must not be split into several arguments"
+    );
 }
 
 #[test]
 fn a_hostile_id_is_quoted_when_rendered_for_a_human() {
     // FR-7.4: the "copy command" text is pasted into a real shell, so it has
     // to be quoted even though Mochi itself never runs it.
-    let spec = resume(ToolId::ClaudeCode, "abc; rm -rf ~", "/Users/you/code/my repo");
+    let spec = resume(
+        ToolId::ClaudeCode,
+        "abc; rm -rf ~",
+        "/Users/you/code/my repo",
+    );
     let line = spec.to_display_string(QuoteStyle::Posix);
     assert!(line.contains("'abc; rm -rf ~'"), "got {line}");
-    assert!(!line.contains("; rm -rf ~ "), "unquoted metacharacters escaped into {line}");
+    assert!(
+        !line.contains("; rm -rf ~ "),
+        "unquoted metacharacters escaped into {line}"
+    );
 }
 
 #[test]
 fn posix_quoting() {
     assert_eq!(quote_posix("plain"), "plain");
-    assert_eq!(quote_posix("/Users/you/code/my-repo"), "/Users/you/code/my-repo");
+    assert_eq!(
+        quote_posix("/Users/you/code/my-repo"),
+        "/Users/you/code/my-repo"
+    );
     assert_eq!(quote_posix("with space"), "'with space'");
     assert_eq!(quote_posix("it's"), r#"'it'\''s'"#);
     assert_eq!(quote_posix("a;b"), "'a;b'");
@@ -108,14 +141,20 @@ fn posix_quoting() {
     assert_eq!(quote_posix(""), "''");
     // NFR-6.5: a Japanese path is not a special character.
     assert_eq!(quote_posix("/Users/you/コード"), "/Users/you/コード");
-    assert_eq!(quote_posix("/Users/you/私の コード"), "'/Users/you/私の コード'");
+    assert_eq!(
+        quote_posix("/Users/you/私の コード"),
+        "'/Users/you/私の コード'"
+    );
 }
 
 #[test]
 fn powershell_quoting() {
     assert_eq!(quote_powershell("plain"), "plain");
     assert_eq!(quote_powershell(r"C:\Users\you\code"), r"C:\Users\you\code");
-    assert_eq!(quote_powershell(r"C:\Users\you\my repo"), r"'C:\Users\you\my repo'");
+    assert_eq!(
+        quote_powershell(r"C:\Users\you\my repo"),
+        r"'C:\Users\you\my repo'"
+    );
     assert_eq!(quote_powershell("it's"), "'it''s'");
     assert_eq!(quote_powershell("a;b"), "'a;b'");
     assert_eq!(quote_powershell("$env:PATH"), "'$env:PATH'");
@@ -124,7 +163,10 @@ fn powershell_quoting() {
 #[test]
 fn cmd_quoting() {
     assert_eq!(quote_cmd("plain"), "plain");
-    assert_eq!(quote_cmd(r"C:\Users\you\my repo"), r#""C:\Users\you\my repo""#);
+    assert_eq!(
+        quote_cmd(r"C:\Users\you\my repo"),
+        r#""C:\Users\you\my repo""#
+    );
     assert_eq!(quote_cmd("a&b"), r#""a&b""#);
     assert_eq!(quote_cmd("a%PATH%b"), r#""a%PATH%b""#);
 }
@@ -133,7 +175,10 @@ fn cmd_quoting() {
 fn display_string_shows_the_directory_change_first() {
     let spec = resume(ToolId::Codex, "019242aa", "/Users/you/code/my repo");
     let line = spec.to_display_string(QuoteStyle::Posix);
-    assert!(line.starts_with("cd '/Users/you/code/my repo' && "), "got {line}");
+    assert!(
+        line.starts_with("cd '/Users/you/code/my repo' && "),
+        "got {line}"
+    );
     assert!(line.ends_with("codex resume 019242aa"), "got {line}");
 }
 
@@ -167,7 +212,14 @@ fn a_custom_terminal_template_substitutes_into_an_argument_vector() {
     assert_eq!(wrapped.program, "kitty");
     assert_eq!(
         wrapped.args,
-        vec!["--directory", "/Users/you/code/my repo", "--", "codex", "resume", "abc"]
+        vec![
+            "--directory",
+            "/Users/you/code/my repo",
+            "--",
+            "codex",
+            "resume",
+            "abc"
+        ]
     );
 }
 
@@ -187,7 +239,10 @@ fn terminals_that_would_need_a_shell_string_are_refused_for_now() {
     ] {
         let err = external_launch(&spec, &kind).unwrap_err();
         let message = err.to_string();
-        assert!(message.contains("not supported yet"), "unhelpful message: {message}");
+        assert!(
+            message.contains("not supported yet"),
+            "unhelpful message: {message}"
+        );
     }
 }
 

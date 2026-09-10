@@ -62,7 +62,11 @@ fn collect(root: &Path, dir: &Path, out: &mut BTreeMap<String, (u64, u64)>) {
             collect(root, &path, out);
         } else {
             let bytes = fs::read(&path).unwrap();
-            let rel = path.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/");
+            let rel = path
+                .strip_prefix(root)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/");
             out.insert(rel, (bytes.len() as u64, fnv1a(&bytes)));
         }
     }
@@ -96,7 +100,11 @@ pub fn init_repo(dir: &Path, remote: Option<&str>) -> String {
             .current_dir(dir)
             .output()
             .unwrap_or_else(|e| panic!("git {args:?}: {e}"));
-        assert!(out.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&out.stderr));
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
         String::from_utf8_lossy(&out.stdout).trim().to_string()
     };
     git(&["init", "--initial-branch=main"]);

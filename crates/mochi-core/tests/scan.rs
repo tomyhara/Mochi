@@ -36,7 +36,9 @@ fn staged_home() -> tempfile::TempDir {
 }
 
 fn scan_into(index: &mut Index, home: &Path, options: ScanOptions) -> mochi_core::scan::ScanReport {
-    Scanner::new(EnvSource::with_home(home), &NoGit, options).run(index).unwrap()
+    Scanner::new(EnvSource::with_home(home), &NoGit, options)
+        .run(index)
+        .unwrap()
 }
 
 /// Write a Claude Code transcript whose working directory is `cwd`.
@@ -88,7 +90,10 @@ fn search_crosses_tools() {
     scan_into(&mut index, home.path(), ScanOptions::default());
 
     let hits = index
-        .search(&SearchQuery { text: "ECONNRESET".into(), ..Default::default() })
+        .search(&SearchQuery {
+            text: "ECONNRESET".into(),
+            ..Default::default()
+        })
         .unwrap();
     let tools: std::collections::BTreeSet<_> = hits.iter().map(|h| h.tool).collect();
     assert!(
@@ -108,7 +113,10 @@ fn a_second_scan_reparses_nothing() {
     let second = scan_into(&mut index, home.path(), ScanOptions::default());
     assert_eq!(second.parsed, 0);
     assert_eq!(second.unchanged, 9);
-    assert_eq!(index.list_sessions(&SessionQuery::default()).unwrap().len(), 9);
+    assert_eq!(
+        index.list_sessions(&SessionQuery::default()).unwrap().len(),
+        9
+    );
 }
 
 #[test]
@@ -116,7 +124,13 @@ fn a_changed_file_is_reparsed() {
     let home = staged_home();
     let repo_dir = home.path().join("code/live-repo");
     fs::create_dir_all(&repo_dir).unwrap();
-    let path = write_session(home.path(), "-code-live", "aaaa1111", &repo_dir, "first turn");
+    let path = write_session(
+        home.path(),
+        "-code-live",
+        "aaaa1111",
+        &repo_dir,
+        "first turn",
+    );
 
     let mut index = Index::open_in_memory().unwrap();
     scan_into(&mut index, home.path(), ScanOptions::default());
@@ -138,7 +152,13 @@ fn a_changed_file_is_reparsed() {
     let after = scan_into(&mut index, home.path(), ScanOptions::default());
     assert_eq!(after.parsed, 1, "only the file that grew");
     assert_eq!(
-        index.search(&SearchQuery { text: "second turn".into(), ..Default::default() }).unwrap().len(),
+        index
+            .search(&SearchQuery {
+                text: "second turn".into(),
+                ..Default::default()
+            })
+            .unwrap()
+            .len(),
         1
     );
 }
@@ -150,7 +170,14 @@ fn a_forced_scan_reparses_everything() {
     let mut index = Index::open_in_memory().unwrap();
     scan_into(&mut index, home.path(), ScanOptions::default());
 
-    let forced = scan_into(&mut index, home.path(), ScanOptions { force: true, ..Default::default() });
+    let forced = scan_into(
+        &mut index,
+        home.path(),
+        ScanOptions {
+            force: true,
+            ..Default::default()
+        },
+    );
     assert_eq!(forced.parsed, 9);
     assert_eq!(forced.unchanged, 0);
 }
@@ -163,7 +190,10 @@ fn scanning_can_be_limited_to_one_tool() {
     let report = scan_into(
         &mut index,
         home.path(),
-        ScanOptions { tools: vec![ToolId::Codex], ..Default::default() },
+        ScanOptions {
+            tools: vec![ToolId::Codex],
+            ..Default::default()
+        },
     );
 
     assert_eq!(report.discovered, 3);
@@ -183,9 +213,9 @@ fn a_deleted_source_file_becomes_an_archived_session() {
     let mut index = Index::open_in_memory().unwrap();
     scan_into(&mut index, home.path(), ScanOptions::default());
 
-    let victim = home
-        .path()
-        .join(".claude/projects/-Users-you-code-my-repo/11111111-2222-3333-4444-555555555555.jsonl");
+    let victim = home.path().join(
+        ".claude/projects/-Users-you-code-my-repo/11111111-2222-3333-4444-555555555555.jsonl",
+    );
     assert!(victim.exists());
     fs::remove_file(&victim).unwrap();
 
@@ -200,14 +230,21 @@ fn a_deleted_source_file_becomes_an_archived_session() {
         .find(|s| s.native_id == "11111111-2222-3333-4444-555555555555")
         .expect("the session is still listed");
     assert_eq!(session.parse_status, ParseStatus::Archived);
-    assert!(!index.messages(session.id).unwrap().is_empty(), "content survives the file");
+    assert!(
+        !index.messages(session.id).unwrap().is_empty(),
+        "content survives the file"
+    );
     assert_eq!(
         index
-            .search(&SearchQuery { text: "idempotent".into(), session_id: Some(session.id), ..Default::default() })
+            .search(&SearchQuery {
+                text: "idempotent".into(),
+                session_id: Some(session.id),
+                ..Default::default()
+            })
             .unwrap()
             .len(),
-        1,
-        "an archived session is still searchable"
+        2,
+        "an archived session is still searchable: the thinking block and the reply both mention it"
     );
 }
 
@@ -217,7 +254,11 @@ fn an_unreadable_file_is_isolated() {
     let home = staged_home();
     let dir = home.path().join(".claude/projects/-broken");
     fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join("99999999-0000-0000-0000-000000000000.jsonl"), b"\x00\x01\x02 not a transcript").unwrap();
+    fs::write(
+        dir.join("99999999-0000-0000-0000-000000000000.jsonl"),
+        b"\x00\x01\x02 not a transcript",
+    )
+    .unwrap();
 
     let mut index = Index::open_in_memory().unwrap();
     let report = scan_into(&mut index, home.path(), ScanOptions::default());
@@ -235,11 +276,17 @@ fn an_unreadable_file_is_isolated() {
         .find(|s| s.source_path.contains("-broken"))
         .expect("the unreadable session is listed, not hidden");
     assert!(
-        matches!(broken.parse_status, ParseStatus::Failed | ParseStatus::Partial),
+        matches!(
+            broken.parse_status,
+            ParseStatus::Failed | ParseStatus::Partial
+        ),
         "got {:?}",
         broken.parse_status
     );
-    assert!(broken.parse_error.is_some(), "FR-2.7 wants the reason on screen");
+    assert!(
+        broken.parse_error.is_some(),
+        "FR-2.7 wants the reason on screen"
+    );
 }
 
 #[test]
@@ -257,7 +304,10 @@ fn a_missing_working_directory_is_recorded_not_hidden() {
         .find(|s| s.native_id == "11111111-2222-3333-4444-555555555555")
         .unwrap();
     assert!(!orphan.cwd_exists);
-    assert_eq!(orphan.repo_id, None, "no repository, not a wrong repository");
+    assert_eq!(
+        orphan.repo_id, None,
+        "no repository, not a wrong repository"
+    );
     assert_eq!(orphan.cwd.as_deref(), Some("/Users/you/code/my-repo"));
 }
 
@@ -271,28 +321,64 @@ fn sessions_in_a_real_repository_are_grouped_by_it() {
     let repo_dir = home.path().join("code/grouped-repo");
     support::init_repo(&repo_dir, Some("git@github.com:example/grouped-repo.git"));
 
-    write_session(home.path(), "-code-grouped-repo", "bbbb1111", &repo_dir, "first session here");
-    write_session(home.path(), "-code-grouped-repo", "bbbb2222", &repo_dir, "second session here");
+    write_session(
+        home.path(),
+        "-code-grouped-repo",
+        "bbbb1111",
+        &repo_dir,
+        "first session here",
+    );
+    write_session(
+        home.path(),
+        "-code-grouped-repo",
+        "bbbb2222",
+        &repo_dir,
+        "second session here",
+    );
     // A worktree of the same repository resolves back to it (FR-3.2, FR-3.4).
     let nested = repo_dir.join("src/deep");
     fs::create_dir_all(&nested).unwrap();
-    write_session(home.path(), "-code-grouped-nested", "bbbb3333", &nested, "third session here");
+    write_session(
+        home.path(),
+        "-code-grouped-nested",
+        "bbbb3333",
+        &nested,
+        "third session here",
+    );
 
     let mut index = Index::open_in_memory().unwrap();
-    Scanner::new(EnvSource::with_home(home.path()), &GitCli, ScanOptions::default())
-        .run(&mut index)
-        .unwrap();
+    Scanner::new(
+        EnvSource::with_home(home.path()),
+        &GitCli,
+        ScanOptions::default(),
+    )
+    .run(&mut index)
+    .unwrap();
 
     let repos = index.list_repositories().unwrap();
-    assert_eq!(repos.len(), 1, "one repository, not one per directory: {repos:?}");
+    assert_eq!(
+        repos.len(),
+        1,
+        "one repository, not one per directory: {repos:?}"
+    );
     assert_eq!(repos[0].display_name, "grouped-repo");
-    assert_eq!(repos[0].remote_url.as_deref(), Some("github.com/example/grouped-repo"));
+    assert_eq!(
+        repos[0].remote_url.as_deref(),
+        Some("github.com/example/grouped-repo")
+    );
     assert!(repos[0].root_commit.is_some());
 
     let grouped = index
-        .list_sessions(&SessionQuery { repo_id: Some(repos[0].id), ..Default::default() })
+        .list_sessions(&SessionQuery {
+            repo_id: Some(repos[0].id),
+            ..Default::default()
+        })
         .unwrap();
-    assert_eq!(grouped.len(), 3, "including the one started in a subdirectory");
+    assert_eq!(
+        grouped.len(),
+        3,
+        "including the one started in a subdirectory"
+    );
     assert!(grouped.iter().all(|s| s.cwd_exists));
 }
 
@@ -304,7 +390,18 @@ fn a_scan_never_writes_to_a_session_file() {
 
     let mut index = Index::open_in_memory().unwrap();
     scan_into(&mut index, home.path(), ScanOptions::default());
-    scan_into(&mut index, home.path(), ScanOptions { force: true, ..Default::default() });
+    scan_into(
+        &mut index,
+        home.path(),
+        ScanOptions {
+            force: true,
+            ..Default::default()
+        },
+    );
 
-    assert_eq!(support::fingerprint(home.path()), before, "a scan modified the store");
+    assert_eq!(
+        support::fingerprint(home.path()),
+        before,
+        "a scan modified the store"
+    );
 }

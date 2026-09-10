@@ -25,6 +25,8 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::{Error, Result};
+
 /// A process to start: program, arguments, working directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandSpec {
@@ -46,7 +48,24 @@ impl CommandSpec {
 
     /// Render for a human to copy and paste. Not used to launch anything.
     pub fn to_display_string(&self, style: QuoteStyle) -> String {
-        todo!()
+        let quote = match style {
+            QuoteStyle::Posix => quote_posix,
+            QuoteStyle::PowerShell => quote_powershell,
+            QuoteStyle::Cmd => quote_cmd,
+        };
+
+        let mut command = quote(&self.program);
+        for arg in &self.args {
+            command.push(' ');
+            command.push_str(&quote(arg));
+        }
+
+        let cwd = quote(&self.cwd.to_string_lossy());
+        match style {
+            QuoteStyle::Posix => format!("cd {cwd} && {command}"),
+            QuoteStyle::PowerShell => format!("cd {cwd}; {command}"),
+            QuoteStyle::Cmd => format!("cd /d {cwd} && {command}"),
+        }
     }
 }
 
@@ -60,20 +79,52 @@ pub enum QuoteStyle {
 
 impl QuoteStyle {
     pub fn for_host() -> QuoteStyle {
-        todo!()
+        if cfg!(windows) {
+            QuoteStyle::PowerShell
+        } else {
+            QuoteStyle::Posix
+        }
     }
 }
 
+/// Characters that need no quoting anywhere. Everything outside ASCII is
+/// included: a Japanese directory name is ordinary text, not a metacharacter
+/// (NFR-6.5).
+fn needs_quoting(s: &str, extra_safe: &str) -> bool {
+    s.is_empty()
+        || s.chars().any(|c| {
+            !(c.is_ascii_alphanumeric()
+                || !c.is_ascii()
+                || "._/@+,=-".contains(c)
+                || extra_safe.contains(c))
+        })
+}
+
 pub fn quote_posix(s: &str) -> String {
-    todo!()
+    if !needs_quoting(s, ":%") {
+        return s.to_string();
+    }
+    // Single quotes protect everything except a single quote, which has to be
+    // closed, escaped and reopened.
+    format!("'{}'", s.replace('\'', r"'\''"))
 }
 
 pub fn quote_powershell(s: &str) -> String {
-    todo!()
+    if !needs_quoting(s, r":\") {
+        return s.to_string();
+    }
+    // A single-quoted PowerShell string expands nothing; a quote is doubled.
+    format!("'{}'", s.replace('\'', "''"))
 }
 
 pub fn quote_cmd(s: &str) -> String {
-    todo!()
+    if !needs_quoting(s, r":\") {
+        return s.to_string();
+    }
+    // cmd.exe has no way to quote a literal `%`: it is expanded even inside
+    // double quotes. Callers render this text for a human, who will see the
+    // percent signs and can fix them; Mochi never executes it.
+    format!("\"{}\"", s.replace('"', "\"\""))
 }
 
 /// Terminal application to hand a command to (FR-7.3).
@@ -84,14 +135,64 @@ pub enum TerminalKind {
     Cmd,
     TerminalApp,
     ITerm2,
-    /// A user-supplied template. `{cmd}`, `{cwd}` and `{args}` are substituted.
+    /// A user-supplied argument template, e.g.
+    /// `kitty --directory {cwd} -- {program} {args}`. It is split on
+    /// whitespace *before* substitution, so a directory containing spaces
+    /// stays one argument.
     Custom(String),
 }
 
 /// Wrap a command so that the chosen terminal application runs it, still as an
 /// argument vector (NFR-3.6).
-pub fn external_launch(spec: &CommandSpec, terminal: &TerminalKind) -> crate::Result<CommandSpec> {
-    todo!()
+///
+/// Terminal.app, iTerm2, cmd.exe and PowerShell are missing on purpose. Each
+/// can only be handed a command as a single string, which means building shell
+/// text out of session data — exactly what NFR-3.6 forbids. Doing it safely
+/// needs the launcher design that comes with the integrated terminal in
+/// milestone 3 (R-10). Until then the integrated terminal is the default
+/// (FR-7.8a) and "copy command" (FR-7.4) covers the rest.
+pub fn external_launch(spec: &CommandSpec, terminal: &TerminalKind) -> Result<CommandSpec> {
+    match terminal {
+        TerminalKind::WindowsTerminal => {
+            let mut args = vec![
+                "-d".to_string(),
+                spec.cwd.to_string_lossy().into_owned(),
+                spec.program.clone(),
+            ];
+            args.extend(spec.args.iter().cloned());
+            Ok(CommandSpec::new("wt.exe", args, spec.cwd.clone()))
+        }
+        TerminalKind::Custom(template) => expand_template(template, spec),
+        TerminalKind::TerminalApp => Err(unsupported("Terminal.app")),
+        TerminalKind::ITerm2 => Err(unsupported("iTerm2")),
+        TerminalKind::Cmd => Err(unsupported("cmd.exe")),
+        TerminalKind::PowerShell => Err(unsupported("PowerShell")),
+    }
+}
+
+fn unsupported(name: &str) -> Error {
+    Error::invalid(format!(
+        "launching through {name} is not supported yet: it would require building a shell \
+         command line out of session data. Use the integrated terminal, or copy the command."
+    ))
+}
+
+fn expand_template(template: &str, spec: &CommandSpec) -> Result<CommandSpec> {
+    let mut tokens: Vec<String> = Vec::new();
+    for token in template.split_whitespace() {
+        match token {
+            "{cwd}" => tokens.push(spec.cwd.to_string_lossy().into_owned()),
+            "{program}" => tokens.push(spec.program.clone()),
+            "{args}" => tokens.extend(spec.args.iter().cloned()),
+            other => tokens.push(other.to_string()),
+        }
+    }
+
+    if tokens.is_empty() {
+        return Err(Error::invalid("the terminal template is empty"));
+    }
+    let program = tokens.remove(0);
+    Ok(CommandSpec::new(program, tokens, spec.cwd.clone()))
 }
 
 /// What a caller needs to know to resume one session.
@@ -121,6 +222,13 @@ impl ResumeTarget {
 }
 
 /// Refuse to launch when the recorded directory is gone (FR-7.6).
-pub fn check_cwd_exists(cwd: &Path) -> crate::Result<()> {
-    todo!()
+pub fn check_cwd_exists(cwd: &Path) -> Result<()> {
+    if cwd.is_dir() {
+        Ok(())
+    } else {
+        Err(Error::invalid(format!(
+            "working directory {} no longer exists",
+            cwd.display()
+        )))
+    }
 }

@@ -48,7 +48,11 @@ fn windows_separators_are_interchangeable() {
 
 #[test]
 fn windows_paths_are_case_insensitive() {
-    assert!(same_path(r"C:\Users\You\Code\App", r"c:\users\you\code\app", win()));
+    assert!(same_path(
+        r"C:\Users\You\Code\App",
+        r"c:\users\you\code\app",
+        win()
+    ));
 }
 
 #[test]
@@ -61,7 +65,11 @@ fn unix_paths_are_case_sensitive() {
 fn macos_is_case_insensitive_by_default() {
     // The default volume format folds case, which is why two sessions written
     // as /Users/you/Code and /Users/you/code are the same repository.
-    assert!(same_path("/Users/you/Code/app", "/Users/you/code/app", mac()));
+    assert!(same_path(
+        "/Users/you/Code/app",
+        "/Users/you/code/app",
+        mac()
+    ));
 }
 
 #[test]
@@ -78,13 +86,23 @@ fn long_path_prefix_is_stripped() {
 fn unc_paths_survive_normalisation() {
     let a = normalize(r"\\server\share\code\app", win());
     assert_eq!(a.display(), r"\\server\share\code\app");
-    assert!(same_path(r"\\SERVER\share\code\app", r"\\server\share\code\app", win()));
+    assert!(same_path(
+        r"\\SERVER\share\code\app",
+        r"\\server\share\code\app",
+        win()
+    ));
 }
 
 #[test]
 fn trailing_separators_are_dropped_but_roots_survive() {
-    assert_eq!(normalize("/home/user/app/", linux()).display(), "/home/user/app");
-    assert_eq!(normalize("/home/user/app//", linux()).display(), "/home/user/app");
+    assert_eq!(
+        normalize("/home/user/app/", linux()).display(),
+        "/home/user/app"
+    );
+    assert_eq!(
+        normalize("/home/user/app//", linux()).display(),
+        "/home/user/app"
+    );
     assert_eq!(normalize("/", linux()).display(), "/");
     assert_eq!(normalize(r"C:\", win()).display(), r"C:\");
     assert_eq!(normalize("C:", win()).display(), r"C:\");
@@ -92,7 +110,11 @@ fn trailing_separators_are_dropped_but_roots_survive() {
 
 #[test]
 fn dot_segments_are_resolved_lexically() {
-    assert!(same_path("/home/user/code/../code/app/.", "/home/user/code/app", linux()));
+    assert!(same_path(
+        "/home/user/code/../code/app/.",
+        "/home/user/code/app",
+        linux()
+    ));
     assert_eq!(normalize("/a/b/../../c", linux()).display(), "/c");
     // Going above the root cannot escape it.
     assert_eq!(normalize("/../..", linux()).display(), "/");
@@ -102,9 +124,16 @@ fn dot_segments_are_resolved_lexically() {
 fn macos_private_symlinks_are_resolved() {
     // /var, /tmp and /etc are symlinks into /private on macOS, so the same
     // directory shows up under both names depending on who reported it.
-    assert!(same_path("/var/folders/zz/session", "/private/var/folders/zz/session", mac()));
+    assert!(same_path(
+        "/var/folders/zz/session",
+        "/private/var/folders/zz/session",
+        mac()
+    ));
     assert!(same_path("/tmp/build", "/private/tmp/build", mac()));
-    assert_eq!(normalize("/var/folders/zz", mac()).display(), "/private/var/folders/zz");
+    assert_eq!(
+        normalize("/var/folders/zz", mac()).display(),
+        "/private/var/folders/zz"
+    );
     // A directory that merely starts with those letters is left alone.
     assert_eq!(normalize("/variant/data", mac()).display(), "/variant/data");
 }
@@ -121,7 +150,10 @@ fn unicode_normalisation_forms_compare_equal() {
     // The same Japanese directory must not become two repositories.
     let composed = "/Users/you/コード/がぎぐ";
     let decomposed = "/Users/you/コード/か\u{3099}き\u{3099}く\u{3099}";
-    assert_ne!(composed, decomposed, "fixture must actually differ byte for byte");
+    assert_ne!(
+        composed, decomposed,
+        "fixture must actually differ byte for byte"
+    );
     assert!(same_path(composed, decomposed, mac()));
     assert_eq!(
         normalize(decomposed, mac()).display(),

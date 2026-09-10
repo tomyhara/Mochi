@@ -28,7 +28,11 @@ fn home() -> PathBuf {
 
 fn refs() -> Vec<SessionRef> {
     let env = EnvSource::with_home(home());
-    let root = CodexAdapter.data_roots(&env).into_iter().next().expect("a data root");
+    let root = CodexAdapter
+        .data_roots(&env)
+        .into_iter()
+        .next()
+        .expect("a data root");
     let mut found = CodexAdapter.discover(&root).expect("discover");
     found.sort_by(|a, b| a.source_path.cmp(&b.source_path));
     found
@@ -49,7 +53,10 @@ fn the_data_root_follows_codex_home() {
 
     let mut env = EnvSource::with_home("/home/user");
     env.set("CODEX_HOME", "/elsewhere/codex");
-    assert_eq!(CodexAdapter.data_roots(&env)[0], PathBuf::from("/elsewhere/codex"));
+    assert_eq!(
+        CodexAdapter.data_roots(&env)[0],
+        PathBuf::from("/elsewhere/codex")
+    );
 }
 
 #[test]
@@ -57,7 +64,12 @@ fn discovery_walks_the_date_directories() {
     // Codex files sit under sessions/YYYY/MM/DD, so discovery has to recurse
     // rather than list one directory.
     let found = refs();
-    assert_eq!(found.len(), 3, "{:?}", found.iter().map(|r| &r.source_path).collect::<Vec<_>>());
+    assert_eq!(
+        found.len(),
+        3,
+        "{:?}",
+        found.iter().map(|r| &r.source_path).collect::<Vec<_>>()
+    );
     assert!(found.iter().all(|r| r.tool == ToolId::Codex));
     assert!(found
         .iter()
@@ -77,7 +89,13 @@ fn a_rollout_parses_into_a_transcript() {
     let roles: Vec<Role> = parsed.messages.iter().map(|m| m.role).collect();
     assert_eq!(
         roles,
-        vec![Role::User, Role::Thinking, Role::ToolCall, Role::ToolResult, Role::Assistant]
+        vec![
+            Role::User,
+            Role::Thinking,
+            Role::ToolCall,
+            Role::ToolResult,
+            Role::Assistant
+        ]
     );
     assert_eq!(parsed.messages[2].tool_name.as_deref(), Some("shell"));
     assert!(parsed.messages[2].content.contains("rg -n ECONNRESET"));
@@ -104,7 +122,10 @@ fn token_usage_comes_from_the_count_event() {
 #[test]
 fn the_title_is_taken_from_the_first_prompt() {
     let parsed = parse_containing("99999999");
-    assert_eq!(parsed.title.as_deref(), Some("The nightly job dies with ECONNRESET. Find out why."));
+    assert_eq!(
+        parsed.title.as_deref(),
+        Some("The nightly job dies with ECONNRESET. Find out why.")
+    );
 }
 
 #[test]
@@ -125,7 +146,10 @@ fn a_rollout_without_metadata_still_lists() {
         !parsed.native_id.is_empty(),
         "without an id from the file, fall back to something stable so the row still exists"
     );
-    assert!(parsed.messages.iter().any(|m| m.content.contains("orphan turn")));
+    assert!(parsed
+        .messages
+        .iter()
+        .any(|m| m.content.contains("orphan turn")));
 }
 
 #[test]

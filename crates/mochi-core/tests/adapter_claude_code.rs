@@ -29,7 +29,11 @@ fn home() -> PathBuf {
 fn refs() -> Vec<SessionRef> {
     let env = EnvSource::with_home(home());
     let adapter = ClaudeCodeAdapter;
-    let root = adapter.data_roots(&env).into_iter().next().expect("a data root");
+    let root = adapter
+        .data_roots(&env)
+        .into_iter()
+        .next()
+        .expect("a data root");
     let mut found = adapter.discover(&root).expect("discover");
     found.sort_by(|a, b| a.source_path.cmp(&b.source_path));
     found
@@ -38,7 +42,13 @@ fn refs() -> Vec<SessionRef> {
 fn parse_named(name: &str) -> mochi_core::ParsedSession {
     let session = refs()
         .into_iter()
-        .find(|r| r.source_path.file_name().unwrap().to_string_lossy().starts_with(name))
+        .find(|r| {
+            r.source_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with(name)
+        })
         .unwrap_or_else(|| panic!("no fixture starting with {name}"));
     ClaudeCodeAdapter.parse(&session).expect("parse")
 }
@@ -61,13 +71,21 @@ fn discovery_finds_transcripts_and_skips_the_sidelined_ones() {
     let found = refs();
     let names: Vec<String> = found
         .iter()
-        .map(|r| r.source_path.file_name().unwrap().to_string_lossy().into_owned())
+        .map(|r| {
+            r.source_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned()
+        })
         .collect();
 
     assert_eq!(found.len(), 4, "found {names:?}");
     assert!(names.iter().all(|n| n.ends_with(".jsonl")));
     assert!(
-        !names.iter().any(|n| n.contains("orphaned") || n.contains("superseded")),
+        !names
+            .iter()
+            .any(|n| n.contains("orphaned") || n.contains("superseded")),
         "sidelined transcripts would bury the real sessions: {names:?}"
     );
     assert!(found.iter().all(|r| r.tool == ToolId::ClaudeCode));
@@ -112,7 +130,9 @@ fn a_complete_session_parses_into_a_transcript() {
         "tool arguments belong in the searchable text: {:?}",
         parsed.messages[3].content
     );
-    assert!(parsed.messages[4].content.contains("export async function get"));
+    assert!(parsed.messages[4]
+        .content
+        .contains("export async function get"));
 
     // Sequence numbers are dense and ordered so the viewer can index into them.
     let seqs: Vec<i64> = parsed.messages.iter().map(|m| m.seq).collect();
@@ -133,7 +153,10 @@ fn the_working_directory_comes_from_the_file_not_the_directory_name() {
 fn the_title_prefers_the_summary_the_tool_wrote() {
     // FR-4.3: use the tool's own title when it has one.
     let parsed = parse_named("11111111");
-    assert_eq!(parsed.title.as_deref(), Some("Retry idempotent fetches on ECONNRESET"));
+    assert_eq!(
+        parsed.title.as_deref(),
+        Some("Retry idempotent fetches on ECONNRESET")
+    );
 }
 
 #[test]
@@ -164,8 +187,15 @@ fn a_half_written_last_line_is_skipped_not_fatal() {
     let parsed = parse_named("22222222");
     assert_eq!(parsed.parse_status, ParseStatus::Partial);
     assert_eq!(parsed.native_id, "22222222-2222-3333-4444-555555555555");
-    assert_eq!(parsed.messages.len(), 2, "the two complete lines still come through");
-    assert!(parsed.parse_error.is_some(), "the reason should be visible in the UI");
+    assert_eq!(
+        parsed.messages.len(),
+        2,
+        "the two complete lines still come through"
+    );
+    assert!(
+        parsed.parse_error.is_some(),
+        "the reason should be visible in the UI"
+    );
     assert_eq!(parsed.git_branch.as_deref(), Some("feature/retry"));
 }
 
@@ -177,13 +207,20 @@ fn unknown_event_types_are_kept_as_raw_json() {
     assert_eq!(parsed.parse_status, ParseStatus::Partial);
     assert_eq!(parsed.schema_version.as_deref(), Some("2.5.0-next"));
 
-    let raws: Vec<&str> = parsed.messages.iter().filter_map(|m| m.raw.as_deref()).collect();
+    let raws: Vec<&str> = parsed
+        .messages
+        .iter()
+        .filter_map(|m| m.raw.as_deref())
+        .collect();
     assert!(
         raws.iter().any(|r| r.contains("checkpoint_v3")),
         "the unknown event should survive verbatim: {raws:?}"
     );
     assert!(
-        parsed.messages.iter().any(|m| m.content.contains("Still here.")),
+        parsed
+            .messages
+            .iter()
+            .any(|m| m.content.contains("Still here.")),
         "a broken line in the middle must not truncate the rest of the file"
     );
 }

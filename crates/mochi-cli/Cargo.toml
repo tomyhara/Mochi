@@ -15,8 +15,8 @@ path = "src/main.rs"
 [dependencies]
 mochi-core.workspace = true
 anyhow.workspace = true
+chrono.workspace = true
 clap.workspace = true
-dirs.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

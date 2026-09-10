@@ -50,7 +50,12 @@ impl ToolId {
     }
 
     pub fn parse(s: &str) -> Option<ToolId> {
-        match s.trim().to_ascii_lowercase().replace(['-', ' '], "_").as_str() {
+        match s
+            .trim()
+            .to_ascii_lowercase()
+            .replace(['-', ' '], "_")
+            .as_str()
+        {
             "claude_code" | "claude" | "claudecode" => Some(ToolId::ClaudeCode),
             "codex" | "codex_cli" => Some(ToolId::Codex),
             "opencode" | "open_code" => Some(ToolId::OpenCode),

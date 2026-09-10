@@ -53,7 +53,9 @@ fn remote_urls_in_every_form_normalise_alike() {
 fn credentials_never_survive_url_normalisation() {
     // A remote can carry a token. It must not end up in the index, in a log or
     // on screen (NFR-3.3, NFR-5.5).
-    let normalised = normalize_remote_url("https://someone:ghp_EXAMPLEEXAMPLEEXAMPLE@github.com/example/my-repo.git");
+    let normalised = normalize_remote_url(
+        "https://someone:ghp_EXAMPLEEXAMPLEEXAMPLE@github.com/example/my-repo.git",
+    );
     assert_eq!(normalised, "github.com/example/my-repo");
     assert!(!normalised.contains("ghp_"));
     assert!(!normalised.contains("someone"));
@@ -62,7 +64,10 @@ fn credentials_never_survive_url_normalisation() {
 #[test]
 fn path_case_in_remote_is_preserved() {
     // Only the host is case-insensitive; a path can be case sensitive.
-    assert_eq!(normalize_remote_url("https://example.com/Team/Repo.git"), "example.com/Team/Repo");
+    assert_eq!(
+        normalize_remote_url("https://example.com/Team/Repo.git"),
+        "example.com/Team/Repo"
+    );
 }
 
 #[test]
@@ -83,8 +88,16 @@ fn identity_falls_back_to_remote_then_path() {
 #[test]
 fn a_moved_clone_is_still_the_same_repository() {
     // FR-3.3: this is the whole point — the directory moved, the history did not.
-    let before = ident(Some("abc123"), Some("github.com/example/r"), "/home/user/old/r");
-    let after = ident(Some("abc123"), Some("github.com/example/r"), "/home/user/new/r");
+    let before = ident(
+        Some("abc123"),
+        Some("github.com/example/r"),
+        "/home/user/old/r",
+    );
+    let after = ident(
+        Some("abc123"),
+        Some("github.com/example/r"),
+        "/home/user/new/r",
+    );
     assert!(same_repository(&before, &after, true));
 }
 
@@ -113,7 +126,11 @@ fn unrelated_repositories_never_merge() {
 fn a_fork_with_a_shared_first_commit_still_groups_by_commit() {
     // Deliberate: a fork shares its root commit, and grouping the two together
     // is the behaviour FR-3.3 asks for. Recorded here so a change is a choice.
-    let upstream = ident(Some("abc123"), Some("github.com/example/r"), "/home/user/upstream");
+    let upstream = ident(
+        Some("abc123"),
+        Some("github.com/example/r"),
+        "/home/user/upstream",
+    );
     let fork = ident(Some("abc123"), Some("github.com/me/r"), "/home/user/fork");
     assert!(same_repository(&upstream, &fork, true));
 }
@@ -190,7 +207,10 @@ fn git_facts_come_from_a_real_repository() {
 
     let facts = GitCli.facts(&repo);
     assert_eq!(facts.root_commit.as_deref(), Some(root_commit.as_str()));
-    assert_eq!(facts.remote_url.as_deref(), Some("github.com/example/real-repo"));
+    assert_eq!(
+        facts.remote_url.as_deref(),
+        Some("github.com/example/real-repo")
+    );
     assert_eq!(facts.branch.as_deref(), Some("main"));
 
     let (root, identity) = identify(&repo, &GitCli).expect("identified");

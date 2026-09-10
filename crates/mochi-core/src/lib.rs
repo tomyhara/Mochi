@@ -23,6 +23,7 @@
 
 pub mod adapter;
 pub mod command;
+pub mod config;
 pub mod error;
 pub mod index;
 pub mod mask;

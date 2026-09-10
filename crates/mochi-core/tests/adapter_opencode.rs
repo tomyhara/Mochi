@@ -86,7 +86,12 @@ fn the_sqlite_layout_reports_itself_rather_than_being_guessed_at() {
 #[test]
 fn discovery_lists_one_entry_per_session() {
     let found = refs();
-    assert_eq!(found.len(), 2, "{:?}", found.iter().map(|r| &r.source_path).collect::<Vec<_>>());
+    assert_eq!(
+        found.len(),
+        2,
+        "{:?}",
+        found.iter().map(|r| &r.source_path).collect::<Vec<_>>()
+    );
     assert!(found.iter().all(|r| r.tool == ToolId::OpenCode));
 }
 
@@ -112,7 +117,13 @@ fn a_session_is_assembled_from_its_message_and_part_files() {
     let roles: Vec<Role> = parsed.messages.iter().map(|m| m.role).collect();
     assert_eq!(
         roles,
-        vec![Role::User, Role::Thinking, Role::ToolCall, Role::ToolResult, Role::Assistant],
+        vec![
+            Role::User,
+            Role::Thinking,
+            Role::ToolCall,
+            Role::ToolResult,
+            Role::Assistant
+        ],
         "parts must come out in the order they were written, across messages"
     );
     assert!(parsed.messages[0].content.contains("1.2GB"));
@@ -149,15 +160,24 @@ fn the_auth_file_is_never_read() {
     let tmp = tempfile::tempdir().unwrap();
     let store = tmp.path().join("opencode");
     support::copy_tree(&root(), &store);
-    fs::write(store.join("auth.json"), r#"{"anthropic":{"key":"sk-EXAMPLE"}}"#).unwrap();
+    fs::write(
+        store.join("auth.json"),
+        r#"{"anthropic":{"key":"sk-EXAMPLE"}}"#,
+    )
+    .unwrap();
 
     let found = OpenCodeAdapter.discover(&store).unwrap();
     assert!(
-        !found.iter().any(|r| r.source_path.to_string_lossy().contains("auth.json")),
+        !found
+            .iter()
+            .any(|r| r.source_path.to_string_lossy().contains("auth.json")),
         "auth.json must never be treated as a session"
     );
     for session in &found {
         let parsed = OpenCodeAdapter.parse(session).unwrap();
-        assert!(!parsed.messages.iter().any(|m| m.content.contains("sk-EXAMPLE")));
+        assert!(!parsed
+            .messages
+            .iter()
+            .any(|m| m.content.contains("sk-EXAMPLE")));
     }
 }
