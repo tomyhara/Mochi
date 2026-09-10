@@ -89,11 +89,10 @@ jobs:
           command: check bans licenses sources advisories
 
   # NFR-3.1 / NFR-4b.8: Mochi must not contain code that talks to the network.
+  # Reads Cargo.lock, so it needs no toolchain of its own.
   no-network:
     name: no network dependencies
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
       - run: ./scripts/check-no-network-deps.sh
