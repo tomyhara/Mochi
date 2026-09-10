@@ -44,13 +44,38 @@ cargo test --workspace
 `cargo deny check` (licence and advisory policy, NFR-4b.2 / NFR-3.9) needs
 `cargo install cargo-deny`; CI installs it for you, so it is optional locally.
 
-## Browser tests for the mockups
+## The interface
 
-The UI mockups in `doc/` are a generated bundle, and FR-9.1 makes `1b` the
-reference the implementation is built against. `e2e/ui-mocks.spec.ts` opens the
-document in Chromium and asserts the decisions recorded in `doc/ui-spec.md` and
-`doc/CHANGELOG-ui.md` — so regenerating the mock and losing one of them fails
-the build instead of passing quietly.
+```sh
+npm ci
+npm run dev          # http://localhost:5173
+npm run typecheck
+```
+
+`ui/` is React and TypeScript, no framework beyond that. It reads through
+`DataSource` (`ui/src/data/`): the fixture implementation in development and in
+tests, and a desktop implementation that will call the Rust core once there is a
+shell to call it from. Which shell — Tauri or Electron — is R-10, decided by the
+milestone-0 terminal spike; writing the interface against that one interface is
+what keeps the answer from mattering here.
+
+The fixture is not hand-written. `./scripts/build-ui-fixture.sh` runs the real
+scanner over the golden session files and exports the result, so the interface
+is always rendering a shape the core actually produces. CI regenerates it and
+fails if the committed copy has drifted. If you change what `mochi export`
+emits, regenerate and commit in the same change.
+
+## Browser tests
+
+Three suites, all Chromium:
+
+- `e2e/ui.spec.ts` drives the interface itself.
+- `e2e/ui-contrast.spec.ts` measures every rendered string against WCAG AA in
+  both themes (NFR-6.2).
+- `e2e/ui-mocks.spec.ts` opens the design mock in `doc/`. It is a generated
+  bundle and FR-9.1 makes `1b` the reference the implementation is built
+  against, so regenerating it and losing an agreed correction fails the build
+  instead of passing quietly.
 
 ```sh
 npm ci

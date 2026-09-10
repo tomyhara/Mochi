@@ -25,7 +25,7 @@ while IFS= read -r file; do
   if ! head -n 20 "$file" | grep -qF 'Licensed under the Apache License, Version 2.0'; then
     missing+=("$file")
   fi
-done < <(git ls-files '*.rs' '*.sh' '*.ts' '*.tsx' '*.js' | grep -v '^crates/mochi-core/tests/golden/')
+done < <(git ls-files '*.rs' '*.sh' '*.ts' '*.tsx' '*.js' '*.css' | grep -v '^crates/mochi-core/tests/golden/')
 
 if [ ${#missing[@]} -ne 0 ]; then
   echo "error: missing Apache-2.0 licence header (NFR-4b.1b):" >&2

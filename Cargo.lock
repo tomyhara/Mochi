@@ -362,6 +362,7 @@ dependencies = [
  "chrono",
  "clap",
  "mochi-core",
+ "serde_json",
  "tempfile",
 ]
 

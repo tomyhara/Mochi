@@ -88,11 +88,11 @@ jobs:
         with:
           command: check bans licenses sources advisories
 
-  # The UI mockups are the implementation reference (FR-9.1) and a generated
-  # bundle, so a regeneration that drops an agreed correction is exactly the
-  # kind of thing nobody notices by hand.
-  ui-mocks:
-    name: UI mock tests
+  # Two suites: the interface itself, and the design mocks it is built against.
+  # The mocks are a generated bundle, so a regeneration that drops an agreed
+  # correction is exactly the kind of thing nobody notices by hand.
+  ui:
+    name: interface tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -109,6 +109,9 @@ jobs:
       - name: Check npm licences
         run: ./scripts/check-npm-licenses.sh
 
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
@@ -122,6 +125,27 @@ jobs:
           path: playwright-report/
           retention-days: 7
           if-no-files-found: ignore
+
+  # The interface renders whatever `mochi export` produces. Regenerating the
+  # fixture here proves the two still agree — otherwise the interface can drift
+  # into rendering a contract the core no longer implements.
+  ui-fixture:
+    name: interface fixture is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Regenerate
+        run: ./scripts/build-ui-fixture.sh
+
+      - name: It should not have changed
+        run: |
+          if ! git diff --exit-code -- ui/src/fixtures/index.json; then
+            echo "::error::ui/src/fixtures/index.json is stale — run ./scripts/build-ui-fixture.sh and commit it" >&2
+            exit 1
+          fi
 
   # NFR-3.1 / NFR-4b.8: Mochi must not contain code that talks to the network.
   # Reads Cargo.lock, so it needs no toolchain of its own.

@@ -65,6 +65,34 @@ Useful flags: `--db <path>` to keep an experiment away from your real index,
 The index goes to `%APPDATA%\Mochi\` on Windows and
 `~/Library/Application Support/Mochi/` on macOS.
 
+## Try the interface
+
+The window is layout `1b` from the mockups: repositories and their sessions on
+the left, the transcript in the middle, what the session is and what can be done
+with it on the right.
+
+```sh
+npm ci
+npm run dev          # http://localhost:5173
+```
+
+It renders `ui/src/fixtures/index.json`, which is a real `mochi export` of the
+golden session files rather than invented data — regenerate it with
+`./scripts/build-ui-fixture.sh`. Point it at your own sessions with:
+
+```sh
+cargo run -p mochi-cli -- scan
+cargo run -p mochi-cli -- export --pretty --out ui/src/fixtures/index.json
+npm run dev
+```
+
+That export is masked by default, so it is safe to keep and to pass around.
+
+**There is no desktop shell yet.** Whether Mochi ends up on Tauri or Electron is
+decided by the integrated-terminal spike at the end of milestone 0 (R-10), and
+the interface is written against a one-call data source so that neither answer
+costs a rewrite here.
+
 ## Where this is
 
 | Area | State |
@@ -75,7 +103,8 @@ The index goes to `%APPDATA%\Mochi\` on Windows and
 | Index, incremental scan, full-text search | working |
 | Secret masking | working |
 | Resume command construction | working; `mochi resume` prints, the app will launch |
-| Desktop UI, integrated terminal, delete flow | not started — see [doc/ui-spec.md](doc/ui-spec.md) |
+| Interface (layout 1b) | reading, browsing, filtering and the metadata rail work, against exported data |
+| Desktop shell, integrated terminal, delete flow, editing | not started — see [doc/ui-spec.md](doc/ui-spec.md) |
 | UI mockups | 32 screens, with the agreed corrections pinned by browser tests (`npx playwright test`) |
 
 Known gaps, each deliberate and recorded in the tests:
@@ -88,6 +117,9 @@ Known gaps, each deliberate and recorded in the tests:
   out of session data. That waits for the integrated terminal work.
 - Nothing reports a session as *running* yet; that needs the integrated
   terminal, which owns the process.
+- The interface reads; it does not yet write. Tags, notes, pinning, deleting and
+  export from the window are not built, and Resume shows the command rather than
+  launching it — launching belongs to the shell that does not exist yet.
 
 ## Documentation
 
