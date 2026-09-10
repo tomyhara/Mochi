@@ -3,10 +3,10 @@
 | 項目 | 内容 |
 | --- | --- |
 | ドキュメント種別 | UI 仕様（モック修正指示＋未作成画面の仕様） |
-| バージョン | 0.2 |
+| バージョン | 0.3 |
 | 最終更新 | 2026-09-10 |
 | 親ドキュメント | [requirements.md](./requirements.md)（§12） |
-| 対象モック | [Mochi-UI-mocks.html](./Mochi-UI-mocks.html) |
+| 対象モック | [Mochi-UI-mocks.html](./Mochi-UI-mocks.html)（変更履歴: [CHANGELOG-ui.md](./CHANGELOG-ui.md)） |
 
 ## 0. このドキュメントの位置づけ
 
@@ -47,7 +47,29 @@
 | 取消キー表記 | `Esc` | `⎋` |
 | ゴミ箱の呼称 | `Recycle Bin` | `Trash` |
 
+| ファイルマネージャで表示 | `Show in Explorer` | `Reveal in Finder` |
+
 **実行環境の OS で自動的に切り替える。** モック上は両方のアートボードを用意する（§4.2）。
+
+#### ★ 切り替えの対象は「Mochi 自身が表示するファイルシステムパス」に限る
+
+上の規則が及ぶのは、サイドバーのリポジトリパス・右レールの作業ディレクトリ・元ファイルパス・
+設定画面のパスなど、**Mochi がファイルシステムから得て自分で描画するパス**だけである。
+
+**トランスクリプト本文に含まれるパスは対象外。** 会話・ツール呼び出し・diff ヘッダ・シェル出力に
+現れるパスは CLI が記録したデータであり、**一切書き換えずそのまま表示する**
+（requirements FR-2.5 / NFR-3.5 の「元データを改変しない」は表示にも及ぶ）。
+git のリポジトリ相対パスは Windows でも `/` 区切りが慣例なので、diff ヘッダが
+`src/repo/identity.rs` のまま Windows 画面に出るのが正しい。
+
+#### 右レールのファイル操作
+
+| 操作 | 表示 | 位置 |
+| --- | --- | --- |
+| エディタで開く（FR-5.10） | `Open in editor` — **両 OS で同一** | 右レール下部の主ボタン |
+| ファイルマネージャで表示 | `Show in Explorer` / `Reveal in Finder` | 元ファイルパスの右クリック、および `⋯` メニュー |
+
+主ボタンを OS で別の動作に差し替えてはならない。「エディタで開く」と「場所を表示する」は別の操作である。
 
 ### 1.3 トーン
 
@@ -59,28 +81,34 @@
 
 ## 2. 画面インベントリ
 
+2026-09-10 の更新（[CHANGELOG-ui.md](./CHANGELOG-ui.md)）で **全画面が作成済み**。合計 32 画面。
+
 | # | 画面 | 状態 | 節 |
 | --- | --- | --- | --- |
-| 1b | Main window（macOS） | ✅ 作成済み・採用 | — |
-| 1c | Command palette / Resume dialog | ✅ 作成済み | — |
-| 2a | Settings | ⚠️ 修正（M-1, M-4）＋節追加 | §3, §4.7 |
-| 2b | Search results | ✅ 作成済み | — |
-| 2c | First run | ⚠️ 修正（M-3） | §3 |
-| 2d | Empty & error states | ⚠️ 修正（M-2）＋2 状態追加 | §3, §4.3 |
-| — | Masked transcript | ❌ 未作成 | §4.1 |
-| — | Main window（Windows） | ❌ 未作成 | §4.2 |
-| — | Integrated terminal | ❌ 未作成 | §4.3 |
-| — | Delete flow | ❌ 未作成 | §4.4 |
-| — | Export dialog | ❌ 未作成 | §4.5 |
-| — | Repository merge / reassign | ❌ 未作成 | §4.6 |
-| — | Storage & pricing settings | ❌ 未作成 | §4.7 |
-| — | About（ライセンス表示） | ❌ 未作成 | §4.7b |
-| — | Subagent transcript | ❌ 未作成 | §4.8 |
-| — | Light theme | ❌ 未作成 | §4.9 |
+| 1a | Main window（3 ペイン固定） | 不採用・記録として残置 | — |
+| 1b | Main window（macOS）— **基準レイアウト** | ✅ 作成済み。⚠️ M-9 で派生版に追従が必要 | — |
+| 1c | Command palette / Resume dialog | ✅ | — |
+| 2a | Settings | ✅ M-1, M-4 反映済み | §3 |
+| 2b | Search results | ✅ `Masking on` ヘッダ追加済み | §4.1 |
+| 2c | First run | ✅ M-3 反映済み（逐次処理） | §3 |
+| 2d | Empty & error states | ✅ M-2 反映済み（`Archived` / `Working directory missing` に分離） | §3 |
+| 3a | Main window（Windows） | ✅ ⚠️ M-7, M-8 | §4.2 |
+| 3b | Integrated terminal（実行中／異常終了／終了確認） | ✅ ⚠️ M-6 | §4.3 |
+| 3c | Masked transcript（マスク時／解除時） | ✅ | §4.1 |
+| 3d | Delete flow（確認／ゴミ箱不可／選択規則） | ✅ | §4.4 |
+| 3e | Export（既定／マスク OFF／Raw JSONL） | ✅ | §4.5 |
+| 3f | Merge repositories（＋コンテキストメニュー） | ✅ | §4.6 |
+| 3g | Settings → Storage / Cost / About | ✅ | §4.7, §4.7b |
+| 3h | Subagent transcript | ✅ | §4.8 |
+| 3i | Light theme | ✅ アクセント `#B4453A`（5.45:1）⚠️ M-8 | §4.9 |
 
 ---
 
-## 3. 既存モックの修正指示（M-1 〜 M-5）
+## 3. 既存モックの修正指示
+
+### 第 1 ラウンド（M-1 〜 M-5）— ✅ 反映済み
+
+2026-09-10 の更新ですべて反映されたことを確認済み（描画と文言の機械検査）。以下は記録として残す。
 
 ### M-1 · 設定ファイルのパス（`2a` フッタ）
 
@@ -133,8 +161,13 @@ XDG（Linux）の慣習になっており、対象 OS と合わない。requirem
            read and search it. Resuming is not possible — the CLI needs
            the original file.
   パス     ~/.claude/projects/-Users-tomy-code-mochi/01J9F7Q3.jsonl
-  補足     Removed by Claude Code's 30-day retention on Sep 8
+  補足     File missing since Sep 8 · Claude Code removes transcripts
+           after 30 days by default
   ボタン   [Export…] [Remove from index]
+
+  ※ 補足行は「いつから無いか」（Mochi が観測した事実）と「よくある原因」を並べる。
+    "Removed by Claude Code's retention" のように**原因を断定しない**こと —
+    Mochi はファイルが消えたことしか観測できず、手動削除や別ツールの整理と区別できない。
 ```
 
 ### M-3 · 初回スキャンの進捗が矛盾（`2c`）
@@ -179,9 +212,73 @@ XDG（Linux）の慣習になっており、対象 OS と合わない。requirem
 フッタ右:   2 sessions running                          ← 追加（内蔵ターミナル込み）
 ```
 
+### 第 2 ラウンド（M-6 〜 M-10）— 更新後モックのレビューで発見
+
+いずれも軽微。実装着手前に反映すればよい。
+
+#### M-6 · ターミナルの `$` プロンプト（`3b`）
+
+```
+現在:   $ codex resume 01J9F7Q3X2ZK4M8C2A
+修正後: ▸ codex resume 01J9F7Q3X2ZK4M8C2A
+```
+
+同じ画面の SCOPE パネルが "There is no shell prompt" と述べているのに、起動コマンド行の `$` は
+まさにシェルプロンプトの記号で、画面内で矛盾する。起動コマンドの**エコー**であることが分かる別の記号にする。
+
+#### M-7 · diff ヘッダのバックスラッシュ（`3a`）
+
+```
+現在:   src\repo\identity.rs
+修正後: src/repo/identity.rs
+```
+
+§1.2 の「切り替えの対象は Mochi 自身が表示するパスに限る」を参照。diff ヘッダはトランスクリプト本文
+（CLI が記録したデータ）であり書き換えない。**この規則は §1.2 に書かれていなかった仕様側の漏れ**で、
+モック作者の判断は当時の仕様に忠実だった。
+
+#### M-8 · 右レール主ボタンが OS で別の動作になっている（`3a`, `3i`）
+
+```
+1b (macOS)     Open in editor
+3a (Windows)   Show in Explorer     ← 別の操作に置き換わっている
+3i (light)     Reveal in Finder     ← 同上
+
+修正後: 3 画面とも主ボタンは  Open in editor
+        Show in Explorer / Reveal in Finder は元ファイルパスの右クリックへ
+```
+
+§1.2「右レールのファイル操作」を参照。
+
+#### M-9 · 基準レイアウト `1b` が派生版より古い
+
+`3a`（Windows）と `3i`（ライト）は `1b` の派生だが、`1b` にない要素を持つ。
+
+| 要素 | 1b | 3a | 3i |
+| --- | :-: | :-: | :-: |
+| `● Terminal` タブ | ❌ | ✅ | ✅ |
+| 右レール `Est. cost` 行 | ❌ | ✅ | ✅ |
+
+`1b` は実装の基準（requirements FR-9.1）なので、**`1b` に両方を追加**して 3 画面を揃える。
+あわせて `Est. cost` の値には `Estimate from your pricing.toml — not your bill` をツールチップで付ける
+（requirements FR-10.7 は「表示箇所ごとに明示」を求めている。Settings → Cost の注記だけでは足りない）。
+
+#### M-10 · `ARCHIVED` カードの原因断定
+
+```
+現在:   Removed by Claude Code's 30-day retention on Sep 8
+修正後: File missing since Sep 8 · Claude Code removes transcripts after 30 days by default
+```
+
+Mochi が観測できるのは「ファイルが無い」ことだけで、消えた原因（保持期間・手動削除・別ツール）は
+区別できない。事実と「よくある原因」を分けて書く。**元の文言は本書 §3 M-2 で私が示した例文**であり、
+モック側の誤りではない。
+
 ---
 
 ## 4. 未作成画面の仕様
+
+> **2026-09-10: 本節の全画面が作成済み**（§2 参照）。以下は各画面の仕様として引き続き有効。
 
 ### 4.1 マスキング適用後のトランスクリプト 〔優先: 高〕
 
@@ -289,7 +386,7 @@ Transcript │ Tool calls (38) │ Diffs (11) │ Raw JSONL │ ● Terminal
 │                                                                         │
 │                                                                         │
 ├─────────────────────────────────────────────────────────────────────────┤
-│ Started 14:31 · running 2m 14s              Scrollback 10,000 lines     │
+│ Started 14:31 · running 2m 14s              Scrollback 10,000 lines     │  ← 10,000 は仮置き。M0 の実測で確定（NFR-1.7）
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -665,30 +762,16 @@ OFF の間は、一覧・詳細のどこにも削除の導線を出さない。
 
 ## 6. 作成チェックリスト
 
-### モック修正
+### 第 1 ラウンド — ✅ 完了（2026-09-10）
 
-- [ ] M-1 設定パスを OS 標準に（macOS / Windows それぞれ）
-- [ ] M-2 `SOURCE MISSING` → `WORKING DIRECTORY MISSING`、`ARCHIVED` カードを新規追加
-- [ ] M-3 `2c` の進捗数値を整合
-- [ ] M-4 ネットワークのトグルを静的表示に
-- [ ] M-5 `Watching` の対象を統一し、実行中セッション数を分離
+- [x] M-1〜M-5 モック修正
+- [x] §4.1〜§4.9 新規 10 画面（19 アートボード）
+- [x] M-3 の処理モデル → **逐次処理**で確定
 
-### 新規画面（優先: 高）
+### 第 2 ラウンド — 軽微、実装着手前に反映
 
-- [ ] §4.1 マスキング適用後のトランスクリプト（＋検索結果への適用）
-- [ ] §4.2 Windows 版メイン画面
-- [ ] §4.3 内蔵ターミナル（タブ・実行中・終了確認）
-- [ ] §4.4 削除フロー（設定・確認・ゴミ箱不可）
-
-### 新規画面（優先: 中〜低）
-
-- [ ] §4.5 エクスポートダイアログ
-- [ ] §4.6 リポジトリのマージ
-- [ ] §4.7 Settings → Storage / Cost
-- [ ] §4.7b Settings → About（ライセンス・NOTICE・第三者ライセンス）
-- [ ] §4.8 サブエージェント
-- [ ] §4.9 ライトテーマ
-
-### 着手前に決めること
-
-- [ ] M-3 の進捗表示は逐次処理か並行処理か（モックの数字を実装仕様として確定させるため）
+- [ ] M-6 `3b` の `$` を `▸` に
+- [ ] M-7 `3a` の diff ヘッダを `src/repo/identity.rs` に戻す
+- [ ] M-8 `3a` / `3i` の主ボタンを `Open in editor` に統一し、reveal 操作をパスの右クリックへ
+- [ ] M-9 `1b` に `● Terminal` タブと `Est. cost` 行（ツールチップ付き）を追加
+- [ ] M-10 `ARCHIVED` カードの補足行を事実＋一般的原因の形に
