@@ -21,6 +21,8 @@ interface Props {
   repository: Repository | null;
   source: DataSource;
   masked: boolean;
+  busy: boolean;
+  onSetMasking: (reveal: boolean) => void;
 }
 
 function bytes(value: number): string {
@@ -39,7 +41,7 @@ function Field({ label, value }: { label: string; value: string }) {
 }
 
 /** The right rail: what this session is, and what can be done with it. */
-export function MetadataRail({ session, repository, source, masked }: Props) {
+export function MetadataRail({ session, repository, source, masked, busy, onSetMasking }: Props) {
   if (!session) {
     return (
       <aside className="rail" aria-label="Session details">
@@ -96,8 +98,13 @@ export function MetadataRail({ session, repository, source, masked }: Props) {
           ? 'Credentials are masked in what you see.'
           : 'Credentials are shown in full.'}
       </p>
-      <button type="button" className="action" disabled={!source.canReveal}>
-        {masked ? 'Reveal secrets' : 'Mask secrets'}
+      <button
+        type="button"
+        className="action"
+        disabled={!source.canReveal || busy}
+        onClick={() => onSetMasking(masked)}
+      >
+        {busy ? 'Reading…' : masked ? 'Reveal secrets' : 'Mask secrets'}
       </button>
       {!source.canReveal && (
         <p style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 8 }}>

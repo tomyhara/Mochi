@@ -31,21 +31,34 @@ FORBIDDEN=(
   sentry opentelemetry tracing-opentelemetry posthog-rs segment
 )
 
-# Cargo.lock is the resolved set: exactly what gets built and shipped. A
-# manifest's optional or dev-only dependency declarations are not, which is why
-# this reads the lock file rather than `cargo metadata`.
-if [ ! -f Cargo.lock ]; then
-  echo "error: Cargo.lock is missing; run 'cargo build' and commit it." >&2
-  exit 1
-fi
-
-resolved="$(grep -E '^name = "' Cargo.lock | sed -E 's/^name = "(.*)"$/\1/')"
+# Resolve the graph per target rather than reading Cargo.lock.
+#
+# Cargo.lock lists every platform's dependencies at once, which over-reports:
+# Tauri depends on reqwest only for Android and iOS, and Mochi ships to neither.
+# Asking cargo what each shipped target actually builds is both accurate and
+# still catches the regression this guards against.
+#
+# Build and dev dependencies are excluded (-e normal): they do not ship.
+TARGETS=(
+  x86_64-pc-windows-msvc
+  aarch64-apple-darwin
+  x86_64-apple-darwin
+  x86_64-unknown-linux-gnu
+)
 
 found=()
-for crate in "${FORBIDDEN[@]}"; do
-  if printf '%s\n' "$resolved" | grep -qx "$crate"; then
-    found+=("$crate")
+for target in "${TARGETS[@]}"; do
+  graph="$(cargo tree --workspace --locked -e normal --target "$target" \
+            --prefix none --format '{p}' 2>/dev/null | awk '{print $1}' | sort -u)"
+  if [ -z "$graph" ]; then
+    echo "error: could not resolve the dependency graph for $target" >&2
+    exit 1
   fi
+  for crate in "${FORBIDDEN[@]}"; do
+    if printf '%s\n' "$graph" | grep -qx "$crate"; then
+      found+=("$crate ($target)")
+    fi
+  done
 done
 
 if [ ${#found[@]} -ne 0 ]; then
@@ -56,4 +69,4 @@ if [ ${#found[@]} -ne 0 ]; then
   exit 1
 fi
 
-echo "no-network check: OK ($(printf '%s\n' "$resolved" | wc -l | tr -d ' ') resolved crates, ${#FORBIDDEN[@]} names screened)"
+echo "no-network check: OK (${#TARGETS[@]} shipped targets, ${#FORBIDDEN[@]} crate names screened)"

@@ -132,9 +132,20 @@ test.describe('interface', () => {
   test('a resumable session offers the command the core would run (FR-7.2, FR-7.4)', async ({
     page,
   }) => {
-    await expect(page.getByRole('button', { name: 'Resume', exact: true })).toBeEnabled();
+    await expect(page.locator('aside.rail')).toContainText('claude --resume ui-demo-0001');
+    await expect(page.locator('aside.rail')).toContainText('cd /Users/you/code/mochi');
     await page.getByRole('button', { name: 'Copy command' }).click();
     await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible();
+  });
+
+  test('resume stays off until something can actually run a session (FR-7.8)', async ({ page }) => {
+    // An interactive CLI needs somewhere to be interactive, and that is the
+    // integrated terminal, which is milestone 3. A button that looks ready and
+    // does nothing is worse than one that says why it is not.
+    const resume = page.getByRole('button', { name: 'Resume', exact: true });
+    await expect(resume).toBeVisible();
+    await expect(resume).toBeDisabled();
+    await expect(resume).toHaveAttribute('title', /integrated terminal/);
   });
 
   test('secrets are masked, and the view says it cannot unmask them (NFR-3.3)', async ({ page }) => {

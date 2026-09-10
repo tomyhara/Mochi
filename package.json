@@ -3,7 +3,9 @@
   "private": true,
   "description": "Mochi desktop interface and its browser tests",
   "license": "Apache-2.0",
-  "workspaces": ["ui"],
+  "workspaces": [
+    "ui"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace ui",
     "build": "npm run build --workspace ui",
@@ -14,6 +16,7 @@
     "report": "playwright show-report"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.1"
+    "@playwright/test": "1.56.1",
+    "@tauri-apps/cli": "^2.11.4"
   }
 }

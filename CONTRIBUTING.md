@@ -44,11 +44,37 @@ cargo test --workspace
 `cargo deny check` (licence and advisory policy, NFR-4b.2 / NFR-3.9) needs
 `cargo install cargo-deny`; CI installs it for you, so it is optional locally.
 
+## The desktop application
+
+```sh
+npm ci
+npx tauri dev   --config crates/mochi-desktop/tauri.conf.json   # window + hot reload
+npx tauri build --config crates/mochi-desktop/tauri.conf.json   # installers
+```
+
+On Linux you need the webview headers first:
+
+```sh
+sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+```
+
+`crates/mochi-desktop` is deliberately thin: it opens the index, hands the
+window the same document `mochi export` produces, and gets out of the way.
+Anything that decides something belongs in `mochi-core`.
+
+Note that `cargo build -p mochi-desktop` produces a binary that looks for the
+dev server — Tauri picks `devUrl` over the bundled interface unless the build
+goes through its own CLI. Use `npx tauri build` when you want the real thing.
+
+The application version comes from the workspace `Cargo.toml`;
+`tauri.conf.json` deliberately has no `version` field so the installer and
+`mochi --version` cannot disagree. CI enforces that.
+
 ## The interface
 
 ```sh
 npm ci
-npm run dev          # http://localhost:5173
+npm run dev          # http://localhost:5173, fixture data, no shell needed
 npm run typecheck
 ```
 

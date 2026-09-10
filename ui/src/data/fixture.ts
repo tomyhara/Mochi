@@ -26,6 +26,7 @@ import type { DataSource } from './source';
 export class FixtureSource implements DataSource {
   readonly kind = 'fixture' as const;
   readonly canReveal = false;
+  readonly canLaunch = false;
 
   async load(): Promise<IndexDocument> {
     return fixture as unknown as IndexDocument;

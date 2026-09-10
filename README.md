@@ -40,15 +40,65 @@ Mochi is a desktop application for Windows and macOS that fixes that. It works
 - **Never talks to the network.** There is no HTTP client and no telemetry in
   the dependency graph, and CI fails if one appears.
 
-## Try the indexer
+## Install
 
-Requires a [Rust toolchain](https://rustup.rs) and a C compiler for the bundled
-SQLite.
+Download the installer for your platform from
+[Releases](https://github.com/tomyhara/Mochi/releases). Nothing is signed yet
+(see [below](#these-builds-are-unsigned)).
+
+Or build it yourself — the app and the command line tool both come out of one
+checkout:
 
 ```sh
-git clone https://github.com/tomyhara/Mochi
-cd Mochi
-cargo build --release
+npm ci
+npx tauri build --config crates/mochi-desktop/tauri.conf.json
+```
+
+On Linux that also needs the webview headers
+(`libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev`);
+Windows and macOS use the system webview.
+
+## The window
+
+Layout `1b` from the mockups: repositories and their sessions on the left, the
+transcript in the middle, what the session is and what can be done with it on
+the right. On first run it scans your session stores and shows what it found.
+
+To work on it without rebuilding the shell every time:
+
+```sh
+npm run dev          # http://localhost:5173
+```
+
+That renders `ui/src/fixtures/index.json`, a real `mochi export` of the golden
+session files rather than invented data — regenerate it with
+`./scripts/build-ui-fixture.sh`. To browse your own sessions in the browser:
+
+```sh
+cargo run -p mochi-cli -- scan
+cargo run -p mochi-cli -- export --pretty --out ui/src/fixtures/index.json
+npm run dev
+```
+
+That export is masked by default, so it is safe to keep and to pass around.
+
+### These builds are unsigned
+
+Code signing and notarisation are not funded yet (R-7):
+
+- **Windows** shows a SmartScreen warning. Choose *More info* then *Run anyway*,
+  or check the download against `SHA256SUMS.txt` on the release first.
+- **macOS** refuses to open the app because it is quarantined. Right-click it
+  and choose *Open*, or run
+  `xattr -dr com.apple.quarantine /Applications/Mochi.app`.
+
+## The command line indexer
+
+`mochi` does the same reading without a window, for scripting or for anyone who
+would rather not have one.
+
+```sh
+cargo build --release -p mochi-cli
 
 ./target/release/mochi doctor          # which CLIs and stores were found
 ./target/release/mochi scan            # build or refresh the index
@@ -65,34 +115,6 @@ Useful flags: `--db <path>` to keep an experiment away from your real index,
 The index goes to `%APPDATA%\Mochi\` on Windows and
 `~/Library/Application Support/Mochi/` on macOS.
 
-## Try the interface
-
-The window is layout `1b` from the mockups: repositories and their sessions on
-the left, the transcript in the middle, what the session is and what can be done
-with it on the right.
-
-```sh
-npm ci
-npm run dev          # http://localhost:5173
-```
-
-It renders `ui/src/fixtures/index.json`, which is a real `mochi export` of the
-golden session files rather than invented data — regenerate it with
-`./scripts/build-ui-fixture.sh`. Point it at your own sessions with:
-
-```sh
-cargo run -p mochi-cli -- scan
-cargo run -p mochi-cli -- export --pretty --out ui/src/fixtures/index.json
-npm run dev
-```
-
-That export is masked by default, so it is safe to keep and to pass around.
-
-**There is no desktop shell yet.** Whether Mochi ends up on Tauri or Electron is
-decided by the integrated-terminal spike at the end of milestone 0 (R-10), and
-the interface is written against a one-call data source so that neither answer
-costs a rewrite here.
-
 ## Where this is
 
 | Area | State |
@@ -103,8 +125,9 @@ costs a rewrite here.
 | Index, incremental scan, full-text search | working |
 | Secret masking | working |
 | Resume command construction | working; `mochi resume` prints, the app will launch |
-| Interface (layout 1b) | reading, browsing, filtering and the metadata rail work, against exported data |
-| Desktop shell, integrated terminal, delete flow, editing | not started — see [doc/ui-spec.md](doc/ui-spec.md) |
+| Desktop application | opens, scans on first run, reads your real sessions |
+| Interface (layout 1b) | browsing, filtering, the transcript views and the metadata rail |
+| Integrated terminal, delete flow, editing | not started — see [doc/ui-spec.md](doc/ui-spec.md) |
 | UI mockups | 32 screens, with the agreed corrections pinned by browser tests (`npx playwright test`) |
 
 Known gaps, each deliberate and recorded in the tests:
@@ -117,9 +140,14 @@ Known gaps, each deliberate and recorded in the tests:
   out of session data. That waits for the integrated terminal work.
 - Nothing reports a session as *running* yet; that needs the integrated
   terminal, which owns the process.
-- The interface reads; it does not yet write. Tags, notes, pinning, deleting and
-  export from the window are not built, and Resume shows the command rather than
-  launching it — launching belongs to the shell that does not exist yet.
+- The window reads; it does not yet write. Tags, notes, pinning, deleting and
+  export from the window are not built.
+- **Resume shows you the command rather than running it.** An interactive CLI
+  needs somewhere to be interactive, and that is the integrated terminal
+  (FR-7.8), which is milestone 3. The button says so rather than doing nothing.
+- The shell is Tauri, per the decision in doc/requirements.md §7.1. R-10 is
+  still open: if the integrated-terminal spike cannot be made to work on this
+  stack, the shell changes. Neither `ui/` nor `mochi-core` would.
 
 ## Documentation
 

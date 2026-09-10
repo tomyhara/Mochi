@@ -33,6 +33,7 @@ export function App() {
   const [filter, setFilter] = useState('');
   const [theme, setTheme] = useState<Theme>('system');
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -40,7 +41,7 @@ export function App() {
     (async () => {
       try {
         const resolved = await resolveSource();
-        const loaded = await resolved.load();
+        const loaded = await resolved.load(false);
         if (cancelled) return;
         setSource(resolved);
         setDocument(loaded);
@@ -78,6 +79,27 @@ export function App() {
     document_ && session && session.repoId !== null
       ? document_.repositories.find((repo) => repo.id === session.repoId) ?? null
       : null;
+
+  /**
+   * Ask the source for the document again, masked or not.
+   *
+   * Unmasking is a re-read, not a client-side toggle: the window should never
+   * be holding a secret it is only visually hiding (NFR-3.3).
+   */
+  const setMasking = useCallback(
+    async (reveal: boolean) => {
+      if (!source || !source.canReveal) return;
+      setBusy(true);
+      try {
+        setDocument(await source.load(reveal));
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : String(cause));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [source],
+  );
 
   const copyCommand = useCallback(() => {
     if (!session?.resume.command) return;
@@ -162,8 +184,15 @@ export function App() {
         <button
           type="button"
           className="action primary"
-          disabled={!session?.resume.available}
-          title={session?.resume.reason ?? undefined}
+          // Nothing can launch a session yet: an interactive CLI needs
+          // somewhere to be interactive, and that is the integrated terminal
+          // (FR-7.8, milestone 3). Copy command is the working path.
+          disabled={!source.canLaunch || !session?.resume.available}
+          title={
+            !source.canLaunch
+              ? 'Starting a session needs the integrated terminal, which is not built yet. Use Copy command.'
+              : session?.resume.reason ?? undefined
+          }
         >
           Resume
         </button>
@@ -212,6 +241,8 @@ export function App() {
         repository={repository}
         source={source}
         masked={document_.masked}
+        busy={busy}
+        onSetMasking={setMasking}
       />
     </div>
   );
