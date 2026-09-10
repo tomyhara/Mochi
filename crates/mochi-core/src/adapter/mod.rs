@@ -97,6 +97,11 @@ pub trait ToolAdapter: Send + Sync {
     fn data_roots(&self, env: &EnvSource) -> Vec<PathBuf>;
 
     /// List the sessions under one root without parsing them (FR-2.1).
+    ///
+    /// Results are ordered by source path. Directory iteration order is
+    /// whatever the filesystem feels like returning, which would make the row
+    /// ids a scan assigns depend on the machine it ran on — and those ids are
+    /// what a caller stores to remember which session was open.
     fn discover(&self, root: &Path) -> Result<Vec<SessionRef>>;
 
     /// Read one session. Must not fail the caller for anything it can isolate

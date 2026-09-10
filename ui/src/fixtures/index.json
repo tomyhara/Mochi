@@ -17,7 +17,7 @@
       "cwd": "/Users/you/code/mochi",
       "cwdExists": true,
       "gitBranch": "main",
-      "id": 1,
+      "id": 5,
       "messageCount": 6,
       "messages": [
         {
@@ -93,7 +93,7 @@
       "cwd": "/Users/you/code/my-repo",
       "cwdExists": false,
       "gitBranch": null,
-      "id": 5,
+      "id": 4,
       "messageCount": 3,
       "messages": [
         {
@@ -145,7 +145,7 @@
       "cwd": "/Users/you/code/other-repo",
       "cwdExists": false,
       "gitBranch": null,
-      "id": 2,
+      "id": 3,
       "messageCount": 5,
       "messages": [
         {
@@ -213,7 +213,7 @@
       "cwd": "/Users/you/code/my-repo",
       "cwdExists": false,
       "gitBranch": "feature/retry",
-      "id": 4,
+      "id": 2,
       "messageCount": 2,
       "messages": [
         {
@@ -257,7 +257,7 @@
       "cwd": null,
       "cwdExists": false,
       "gitBranch": null,
-      "id": 6,
+      "id": 8,
       "messageCount": 1,
       "messages": [
         {
@@ -329,7 +329,7 @@
       "cwd": "/Users/you/code/my-repo",
       "cwdExists": false,
       "gitBranch": "main",
-      "id": 8,
+      "id": 6,
       "messageCount": 5,
       "messages": [
         {
@@ -397,7 +397,7 @@
       "cwd": "/Users/you/code/my-repo",
       "cwdExists": false,
       "gitBranch": "main",
-      "id": 3,
+      "id": 1,
       "messageCount": 6,
       "messages": [
         {
@@ -473,7 +473,7 @@
       "cwd": "/Users/you/code/scratch-pad",
       "cwdExists": false,
       "gitBranch": null,
-      "id": 9,
+      "id": 10,
       "messageCount": 0,
       "messages": [],
       "model": null,
@@ -500,7 +500,7 @@
       "cwd": "/Users/you/code/my-repo",
       "cwdExists": false,
       "gitBranch": null,
-      "id": 10,
+      "id": 9,
       "messageCount": 5,
       "messages": [
         {

@@ -73,6 +73,7 @@ impl ToolAdapter for CodexAdapter {
                 found.push(session);
             }
         }
+        found.sort_by(|a, b| a.source_path.cmp(&b.source_path));
         Ok(found)
     }
 
