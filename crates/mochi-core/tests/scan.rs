@@ -61,6 +61,29 @@ fn write_session(home: &Path, project: &str, id: &str, cwd: &Path, text: &str) -
 }
 
 #[test]
+fn discovery_is_ordered_so_that_indexing_is_reproducible() {
+    // Row ids are assigned in the order sessions are inserted, and a caller
+    // stores those ids to remember which session was open. If discovery
+    // followed directory iteration order, the same store would produce
+    // different ids on a different machine — which is exactly what a fixture
+    // regenerated in CI caught.
+    let home = staged_home();
+    let env = EnvSource::with_home(home.path());
+
+    for adapter in mochi_core::adapter::all() {
+        for root in adapter.data_roots(&env) {
+            let Ok(found) = adapter.discover(&root) else {
+                continue;
+            };
+            let paths: Vec<_> = found.iter().map(|session| &session.source_path).collect();
+            let mut sorted = paths.clone();
+            sorted.sort();
+            assert_eq!(paths, sorted, "{} returned {root:?} unsorted", adapter.id());
+        }
+    }
+}
+
+#[test]
 fn a_first_scan_indexes_every_tool() {
     let home = staged_home();
     let mut index = Index::open_in_memory().unwrap();

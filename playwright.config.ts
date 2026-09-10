@@ -15,17 +15,16 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Browser tests for the UI mockups in `doc/`.
+ * Browser tests, in two sets.
  *
- * There is no Mochi application to drive yet (see the milestones in
- * doc/requirements.md). What exists is the mock document that FR-9.1 names as
- * the implementation reference, and it is a generated bundle: regenerating it
- * can silently drop a correction that was agreed in review. These tests pin
- * the decisions recorded in doc/ui-spec.md and doc/CHANGELOG-ui.md so that a
- * regeneration which loses one fails the build instead of passing quietly.
+ * `ui.spec.ts` and `ui-contrast.spec.ts` drive the interface itself, served
+ * from `ui/dist`, against the fixture that `scripts/build-ui-fixture.sh`
+ * produces by running the real scanner over the golden session files.
  *
- * The same setup is where the application's own end-to-end tests will go once
- * there is a window to open.
+ * `ui-mocks.spec.ts` opens the design mock in `doc/`, which FR-9.1 names as
+ * the reference the interface is built against. It is a generated bundle, so
+ * regenerating it can silently drop a correction that was agreed in review;
+ * those tests pin the decisions from doc/ui-spec.md and doc/CHANGELOG-ui.md.
  */
 export default defineConfig({
   testDir: './e2e',
@@ -33,9 +32,16 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
+  // The interface tests need it served; the mock tests open a local file and
+  // ignore this entirely.
+  webServer: {
+    command: 'npm run build && npm run preview',
+    url: 'http://localhost:4173/',
+    reuseExistingServer: !process.env.CI,
+    timeout: 180_000,
+  },
   use: {
-    // The mock is a local file and pulls in nothing from the network, so
-    // there is no base URL and no server to start.
+    baseURL: 'http://localhost:4173',
     trace: 'retain-on-failure',
     launchOptions: {
       // Environments that ship their own Chromium (CI images, this repo's

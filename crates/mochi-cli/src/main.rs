@@ -81,6 +81,8 @@ enum Command {
     Search(SearchArgs),
     /// Print the command that resumes a session. Does not run it.
     Resume(ResumeArgs),
+    /// Write the whole index as JSON, for the interface to render.
+    Export(ExportArgs),
 }
 
 #[derive(Args)]
@@ -135,6 +137,17 @@ struct SearchArgs {
 }
 
 #[derive(Args)]
+struct ExportArgs {
+    /// Write here instead of to standard output.
+    #[arg(long, value_name = "PATH")]
+    out: Option<PathBuf>,
+
+    /// Indent the JSON.
+    #[arg(long)]
+    pretty: bool,
+}
+
+#[derive(Args)]
 struct ResumeArgs {
     /// Session id, as shown by `mochi sessions`.
     id: i64,
@@ -156,6 +169,7 @@ fn run() -> Result<()> {
         Command::Sessions(args) => sessions(&cli.global, args),
         Command::Search(args) => search(&cli.global, args),
         Command::Resume(args) => resume(&cli.global, args),
+        Command::Export(args) => export(&cli.global, args),
     }
 }
 
@@ -444,6 +458,145 @@ fn resume(global: &GlobalArgs, args: &ResumeArgs) -> Result<()> {
     // rather than from this text (NFR-3.6).
     println!("{}", spec.to_display_string(QuoteStyle::for_host()));
     Ok(())
+}
+
+/// The shape the interface consumes.
+///
+/// Deliberately built here rather than derived from the core's types: the
+/// interface should not have to change every time an internal field moves, and
+/// writing it out makes the contract something you can read in one place.
+///
+/// Secrets are masked unless `--no-mask` is given (NFR-3.3, FR-8.5). That
+/// default is what makes the exported file safe to hand to someone, or to
+/// commit as a fixture.
+fn export(global: &GlobalArgs, args: &ExportArgs) -> Result<()> {
+    let index = open_index(global)?;
+    let masker = Masker::new();
+    let mask = |text: &str| -> String {
+        if global.no_mask {
+            text.to_string()
+        } else {
+            masker.mask(text).text
+        }
+    };
+
+    let repositories: Vec<serde_json::Value> = index
+        .list_repositories()?
+        .into_iter()
+        .map(|repo| {
+            serde_json::json!({
+                "id": repo.id,
+                "displayName": repo.display_name,
+                "rootPath": repo.root_path,
+                "remoteUrl": repo.remote_url,
+                "rootCommit": repo.root_commit,
+                "isWorktree": repo.is_worktree,
+                "hidden": repo.hidden,
+            })
+        })
+        .collect();
+
+    let mut sessions = Vec::new();
+    for session in index.list_sessions(&SessionQuery {
+        limit: Some(u32::MAX),
+        ..Default::default()
+    })? {
+        let messages: Vec<serde_json::Value> = index
+            .messages(session.id)?
+            .into_iter()
+            .map(|message| {
+                serde_json::json!({
+                    "seq": message.seq,
+                    "role": message.role.as_str(),
+                    "content": mask(&message.content),
+                    "toolName": message.tool_name,
+                    "timestamp": message.timestamp,
+                    "raw": message.raw.as_deref().map(&mask),
+                })
+            })
+            .collect();
+
+        // The interface's Resume and Copy command buttons should show what the
+        // core would actually run, not a string the interface guessed at.
+        let resume = resume_info(&session);
+
+        sessions.push(serde_json::json!({
+            "id": session.id,
+            "tool": session.tool.as_str(),
+            "nativeId": session.native_id,
+            "repoId": session.repo_id,
+            "title": session.title.as_deref().map(&mask),
+            "model": session.model,
+            "cwd": session.cwd,
+            "cwdExists": session.cwd_exists,
+            "gitBranch": session.git_branch,
+            "startedAt": session.started_at,
+            "updatedAt": session.updated_at,
+            "messageCount": session.message_count,
+            "tokensIn": session.tokens_in,
+            "tokensOut": session.tokens_out,
+            "status": session.status.as_str(),
+            "parseStatus": session.parse_status.as_str(),
+            "parseError": session.parse_error,
+            "sourcePath": session.source_path,
+            "sourceSize": session.source_size,
+            "resume": resume,
+            "messages": messages,
+        }));
+    }
+
+    let document = serde_json::json!({
+        "schema": 1,
+        "masked": !global.no_mask,
+        "repositories": repositories,
+        "sessions": sessions,
+    });
+
+    let text = if args.pretty {
+        serde_json::to_string_pretty(&document)?
+    } else {
+        serde_json::to_string(&document)?
+    };
+
+    match &args.out {
+        Some(path) => {
+            std::fs::write(path, text + "\n")
+                .with_context(|| format!("writing {}", path.display()))?;
+            eprintln!("wrote {}", path.display());
+        }
+        None => println!("{text}"),
+    }
+    Ok(())
+}
+
+/// Whether a session can be resumed, and the command if it can.
+///
+/// The reasons matter as much as the command: FR-7.6 and FR-2.11 both end with
+/// a session the user can still read but cannot restart, and the interface has
+/// to say which it is.
+fn resume_info(session: &SessionRecord) -> serde_json::Value {
+    let unavailable =
+        |reason: &str| serde_json::json!({ "available": false, "command": null, "reason": reason });
+
+    if session.parse_status == ParseStatus::Archived {
+        return unavailable("the original transcript is gone, so there is nothing to resume");
+    }
+    let Some(cwd) = session.cwd.as_deref() else {
+        return unavailable("this session recorded no working directory");
+    };
+    if !session.cwd_exists {
+        return unavailable("the working directory no longer exists");
+    }
+
+    let target = ResumeTarget::new(&session.native_id, PathBuf::from(cwd));
+    match adapter::for_tool(session.tool).resume_command(&target) {
+        Ok(spec) => serde_json::json!({
+            "available": true,
+            "command": spec.to_display_string(QuoteStyle::for_host()),
+            "reason": null,
+        }),
+        Err(error) => unavailable(&error.to_string()),
+    }
 }
 
 fn format_time(milliseconds: Option<i64>) -> String {

@@ -44,13 +44,38 @@ cargo test --workspace
 `cargo deny check` (licence and advisory policy, NFR-4b.2 / NFR-3.9) needs
 `cargo install cargo-deny`; CI installs it for you, so it is optional locally.
 
-## Browser tests for the mockups
+## The interface
 
-The UI mockups in `doc/` are a generated bundle, and FR-9.1 makes `1b` the
-reference the implementation is built against. `e2e/ui-mocks.spec.ts` opens the
-document in Chromium and asserts the decisions recorded in `doc/ui-spec.md` and
-`doc/CHANGELOG-ui.md` — so regenerating the mock and losing one of them fails
-the build instead of passing quietly.
+```sh
+npm ci
+npm run dev          # http://localhost:5173
+npm run typecheck
+```
+
+`ui/` is React and TypeScript, no framework beyond that. It reads through
+`DataSource` (`ui/src/data/`): the fixture implementation in development and in
+tests, and a desktop implementation that will call the Rust core once there is a
+shell to call it from. Which shell — Tauri or Electron — is R-10, decided by the
+milestone-0 terminal spike; writing the interface against that one interface is
+what keeps the answer from mattering here.
+
+The fixture is not hand-written. `./scripts/build-ui-fixture.sh` runs the real
+scanner over the golden session files and exports the result, so the interface
+is always rendering a shape the core actually produces. CI regenerates it and
+fails if the committed copy has drifted. If you change what `mochi export`
+emits, regenerate and commit in the same change.
+
+## Browser tests
+
+Three suites, all Chromium:
+
+- `e2e/ui.spec.ts` drives the interface itself.
+- `e2e/ui-contrast.spec.ts` measures every rendered string against WCAG AA in
+  both themes (NFR-6.2).
+- `e2e/ui-mocks.spec.ts` opens the design mock in `doc/`. It is a generated
+  bundle and FR-9.1 makes `1b` the reference the implementation is built
+  against, so regenerating it and losing an agreed correction fails the build
+  instead of passing quietly.
 
 ```sh
 npm ci
@@ -122,6 +147,25 @@ Session formats are **undocumented internals that change without notice**
 - keep the raw JSON for anything they do not understand (FR-2.8)
 - skip an incomplete trailing line rather than failing the file (FR-2.6)
 - open source files read-only and never write to them (FR-2.5, NFR-3.5)
+
+## Cutting a release
+
+Releases are built by CI on real Windows and macOS runners — there is no way to
+produce a `.exe` or a `.dmg` from a Linux machine, and cross-compiling the
+bundled SQLite is not worth the risk of shipping something nobody ran.
+
+1. Set the version in the workspace `Cargo.toml` and commit the `Cargo.lock`
+   that comes with it.
+2. Tag it: `git tag v<version> && git push origin v<version>`.
+3. `.github/workflows/release.yml` runs from the tag, refuses to continue if
+   the tag and `Cargo.toml` disagree, runs the tests in release mode, builds a
+   Windows binary and a universal macOS binary, and attaches them to a **draft**
+   release with a `SHA256SUMS.txt`.
+4. Read the draft, then publish it yourself.
+
+Nothing is signed or notarised yet (R-7), so the notes tell people how to get
+past SmartScreen and Gatekeeper and how to check the binary against the
+checksums. Keep that section honest as long as it is true.
 
 ## Pull requests
 

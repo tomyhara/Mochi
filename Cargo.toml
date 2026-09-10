@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/mochi-core", "crates/mochi-cli"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
 rust-version = "1.77"
 license = "Apache-2.0"
@@ -11,7 +11,7 @@ repository = "https://github.com/tomyhara/Mochi"
 authors = ["The Mochi Authors"]
 
 [workspace.dependencies]
-mochi-core = { path = "crates/mochi-core", version = "0.1.0" }
+mochi-core = { path = "crates/mochi-core", version = "0.0.1" }
 
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }

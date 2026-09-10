@@ -39,6 +39,23 @@ const ALLOWED = new Set([
   'Python-2.0',
 ]);
 
+// Licences accepted only for packages that never reach a user's machine:
+// build tooling and its data. CC-BY-4.0 carries an attribution obligation on
+// distribution and no share-alike, so it is not the copyleft NFR-4b.2 rejects,
+// but it has no business in anything Mochi ships either.
+const ALLOWED_BUILD_ONLY = new Set(['CC-BY-4.0', 'CC-BY-3.0']);
+
+/** Packages marked dev-only in the lockfile — build tooling, not product. */
+function devOnlyPaths() {
+  const paths = new Set();
+  if (!fs.existsSync('package-lock.json')) return paths;
+  const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+  for (const [location, info] of Object.entries(lock.packages || {})) {
+    if (info && info.dev) paths.add(location);
+  }
+  return paths;
+}
+
 /** Walk node_modules, including scoped packages and nested trees. */
 function* packages(dir) {
   if (!fs.existsSync(dir)) return;
@@ -70,7 +87,9 @@ function acceptable(expression) {
 }
 
 const problems = [];
+const buildOnly = devOnlyPaths();
 let checked = 0;
+let buildOnlyAccepted = 0;
 
 for (const manifest of packages('node_modules')) {
   const pkg = JSON.parse(fs.readFileSync(manifest, 'utf8'));
@@ -80,9 +99,16 @@ for (const manifest of packages('node_modules')) {
     typeof pkg.license === 'string'
       ? pkg.license
       : pkg.license?.type || (Array.isArray(pkg.licenses) ? pkg.licenses.map((l) => l.type).join(' OR ') : '');
-  if (!acceptable(licence)) {
-    problems.push(`${pkg.name}@${pkg.version}: ${licence || '(no licence field)'}`);
+
+  if (acceptable(licence)) continue;
+
+  const location = path.dirname(manifest).replace(/\\/g, '/');
+  if (buildOnly.has(location) && ALLOWED_BUILD_ONLY.has(licence.trim())) {
+    buildOnlyAccepted++;
+    continue;
   }
+
+  problems.push(`${pkg.name}@${pkg.version}: ${licence || '(no licence field)'}`);
 }
 
 if (problems.length) {
@@ -90,8 +116,13 @@ if (problems.length) {
   for (const problem of problems) console.error('  ' + problem);
   console.error('');
   console.error('Permitted: ' + [...ALLOWED].join(', '));
+  console.error('Permitted for dev-only packages: ' + [...ALLOWED_BUILD_ONLY].join(', '));
   process.exit(1);
 }
 
-console.log(`npm licence check: OK (${checked} packages)`);
+console.log(
+  `npm licence check: OK (${checked} packages` +
+    (buildOnlyAccepted ? `, ${buildOnlyAccepted} accepted as build-only` : '') +
+    ')',
+);
 NODE

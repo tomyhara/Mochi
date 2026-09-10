@@ -127,6 +127,7 @@ impl ToolAdapter for OpenCodeAdapter {
                 source_mtime: mtime,
             });
         }
+        found.sort_by(|a, b| a.source_path.cmp(&b.source_path));
         Ok(found)
     }
 

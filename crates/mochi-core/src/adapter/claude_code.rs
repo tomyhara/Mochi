@@ -77,6 +77,7 @@ impl ToolAdapter for ClaudeCodeAdapter {
                 Err(_) => continue,
             }
         }
+        found.sort_by(|a, b| a.source_path.cmp(&b.source_path));
         Ok(found)
     }
 
