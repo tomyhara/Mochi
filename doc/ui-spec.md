@@ -3,7 +3,7 @@
 | 項目 | 内容 |
 | --- | --- |
 | ドキュメント種別 | UI 仕様（モック修正指示＋未作成画面の仕様） |
-| バージョン | 0.1 |
+| バージョン | 0.2 |
 | 最終更新 | 2026-09-10 |
 | 親ドキュメント | [requirements.md](./requirements.md)（§12） |
 | 対象モック | [Mochi-UI-mocks.html](./Mochi-UI-mocks.html) |
@@ -74,6 +74,7 @@
 | — | Export dialog | ❌ 未作成 | §4.5 |
 | — | Repository merge / reassign | ❌ 未作成 | §4.6 |
 | — | Storage & pricing settings | ❌ 未作成 | §4.7 |
+| — | About（ライセンス表示） | ❌ 未作成 | §4.7b |
 | — | Subagent transcript | ❌ 未作成 | §4.8 |
 | — | Light theme | ❌ 未作成 | §4.9 |
 
@@ -282,9 +283,9 @@ Transcript │ Tool calls (38) │ Diffs (11) │ Raw JSONL │ ● Terminal
 │ ● codex · ~/code/mochi          Terminal output is not masked   [⊗ Stop]│
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│   $ codex resume 01J9F7Q3X2ZK4M8C2A                                     │
+│   codex resume 01J9F7Q3X2ZK4M8C2A          ← 起動コマンドの表示のみ     │
 │   ● Resuming session (142 messages)                                     │
-│   > _                                                                   │
+│   > _                                       ← 以降は CLI 自身のプロンプト │
 │                                                                         │
 │                                                                         │
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -325,11 +326,23 @@ Transcript │ Tool calls (38) │ Diffs (11) │ Raw JSONL │ ● Terminal
 └──────────────────────────────────────────────────────────────┘
 ```
 
-#### 決めるべきこと
+#### 範囲（Q-9 = ① 起動専用で確定）
 
-**Q-9（requirements §11.2）**: このターミナルは対象 CLI の起動専用か、通常のシェルとしても使えるか。
-**本仕様は「起動専用」を前提に書いている**（プロンプトが `$` ではなく CLI そのもの）。
-②を採るなら、シェル選択・環境変数・作業ディレクトリ変更の UI が追加で必要になる。
+**対象 CLI の起動専用**であり、汎用シェルとしては提供しない（requirements FR-7.8h）。
+
+| 提供する | 提供しない |
+| --- | --- |
+| 対象 CLI の起動と、その CLI との対話 | シェルプロンプト（`$` / `>`） |
+| リサイズ・スクロール・コピー | シェルの選択（bash / zsh / pwsh…） |
+| 停止・再実行 | `cd` などによる作業ディレクトリ変更 |
+| — | 環境変数の編集 UI |
+
+プロセス終了後は**プロンプトに戻らず**、タブを終了状態にする（下表参照）。
+
+> **UI 上の表現に関する注意**（requirements FR-7.8i）
+> これは隔離でもサンドボックスでもない。起動された CLI 自身は従来どおり任意のコマンドを実行できる
+> — それがエージェントの動作そのものである。**「安全」「隔離」「サンドボックス」といった語を
+> この画面に使ってはならない。** ここで限定しているのは Mochi の UI の範囲だけで、CLI の権限ではない。
 
 ---
 
@@ -535,6 +548,40 @@ OFF の間は、一覧・詳細のどこにも削除の導線を出さない。
 
 ---
 
+### 4.7b Settings → About（Apache-2.0 対応）〔優先: 中〕
+
+**対応要件**: NFR-4b.1〜1c、NFR-4b.3（Q-8 = Apache License 2.0）
+
+既存モック `2a` の左メニューに `About` はあるが、中身が未定。OSS 化に伴い**必須**の内容がある。
+
+```
+  ABOUT
+  Mochi 0.1.0-dev
+  A session manager for Codex CLI, Claude Code and OpenCode.
+
+  LICENSE
+  Apache License 2.0                                    [ View ]
+  Copyright 2026 <著作権者>
+
+  This product includes software developed by third parties.
+  See NOTICE for attributions.                          [ View ]
+
+  THIRD-PARTY LICENSES                                  [ View all ]
+    tauri              Apache-2.0 OR MIT
+    rusqlite           MIT
+    xterm.js           MIT
+    …                                                   412 packages
+
+  Source code                     github.com/<owner>/mochi
+  Report a security issue         SECURITY.md
+```
+
+- `NOTICE` の内容をアプリ内から参照できること（NFR-4b.1a）。再配布者が引き継ぐ義務があるため、
+  「どこかにある」ではなく明示的な導線を置く。
+- 第三者ライセンス一覧はビルド時に依存関係から自動生成する。手書きしない（更新漏れが必ず起きる）。
+
+---
+
 ### 4.8 サブエージェントのトランスクリプト 〔優先: 低〕
 
 **対応要件**: FR-5.7 ／ Claude Code の `<session>/subagents/` に対応。
@@ -638,10 +685,10 @@ OFF の間は、一覧・詳細のどこにも削除の導線を出さない。
 - [ ] §4.5 エクスポートダイアログ
 - [ ] §4.6 リポジトリのマージ
 - [ ] §4.7 Settings → Storage / Cost
+- [ ] §4.7b Settings → About（ライセンス・NOTICE・第三者ライセンス）
 - [ ] §4.8 サブエージェント
 - [ ] §4.9 ライトテーマ
 
 ### 着手前に決めること
 
-- [ ] **Q-9** 内蔵ターミナルは CLI 起動専用か、シェルとしても使えるか（§4.3。本仕様は起動専用前提）
-- [ ] M-3 の進捗表示は逐次処理か並行処理か
+- [ ] M-3 の進捗表示は逐次処理か並行処理か（モックの数字を実装仕様として確定させるため）
