@@ -1,0 +1,57 @@
+# cargo-deny configuration.
+#
+# NFR-4b.2: Apache-2.0 is incompatible with GPLv2 and can only be absorbed into
+# GPLv3 one way, so no copyleft dependency may enter the graph. Permissive
+# licences only.
+# NFR-3.9: advisories are checked in the same CI job.
+
+[graph]
+all-features = true
+
+[licenses]
+version = 2
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "Unlicense",
+  "CC0-1.0",
+  "MIT-0",
+]
+confidence-threshold = 0.9
+
+# Ring's licence file is a compound of several permissive terms that the
+# detector cannot score on its own.
+[[licenses.clarify]]
+crate = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# NFR-3.1 / NFR-4b.8: Mochi is offline-only and ships no telemetry. These crates
+# must not appear in the graph. scripts/check-no-network-deps.sh screens the
+# same list from the other direction so a missing cargo-deny does not silently
+# drop the guarantee.
+deny = [
+  { crate = "reqwest", reason = "Mochi makes no network calls (NFR-3.1)" },
+  { crate = "hyper", reason = "Mochi makes no network calls (NFR-3.1)" },
+  { crate = "ureq", reason = "Mochi makes no network calls (NFR-3.1)" },
+  { crate = "curl", reason = "Mochi makes no network calls (NFR-3.1)" },
+  { crate = "sentry", reason = "Mochi ships no telemetry (NFR-4b.8)" },
+  { crate = "opentelemetry", reason = "Mochi ships no telemetry (NFR-4b.8)" },
+]
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

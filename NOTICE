@@ -1,0 +1,24 @@
+Mochi
+Copyright 2026 The Mochi Authors
+
+This product includes software developed by the Mochi Authors
+(https://github.com/tomyhara/Mochi).
+
+Licensed under the Apache License, Version 2.0. See LICENSE for the full text.
+
+--------------------------------------------------------------------------------
+Third-party components
+--------------------------------------------------------------------------------
+
+Mochi links against third-party Rust crates at build time. Every dependency is
+required by CI (see deny.toml) to be distributed under a permissive licence:
+Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0 or
+Unlicense. Copyleft licences (GPL / LGPL / AGPL / MPL) are rejected.
+
+The bundled SQLite amalgamation reached through `libsqlite3-sys` is in the
+public domain (https://www.sqlite.org/copyright.html).
+
+A machine-generated inventory of the exact dependency versions and their
+licences is produced by `cargo deny list` and is published with each release.
+When a new dependency introduces its own NOTICE requirements, its attribution
+must be appended to this file (Apache-2.0 section 4(d)).
