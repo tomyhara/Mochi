@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2127"/>
+      <stop offset="1" stop-color="#0f1113"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#g)"/>
+  <!-- three session stores, collected into one stack: the product in one mark -->
+  <g fill="none" stroke="#f0968c" stroke-width="46" stroke-linecap="round">
+    <path d="M300 336 h424"/>
+    <path d="M300 512 h424"/>
+    <path d="M300 688 h276"/>
+  </g>
+  <circle cx="216" cy="336" r="34" fill="#f0968c"/>
+  <circle cx="216" cy="512" r="34" fill="#7ec8e3"/>
+  <circle cx="216" cy="688" r="34" fill="#9be3be"/>
+</svg>

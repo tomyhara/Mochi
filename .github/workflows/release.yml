@@ -4,8 +4,11 @@ name: Release
 # use Mochi before code signing is funded (R-7), and attaches them to a draft
 # release for a human to review and publish.
 #
-# Triggered by pushing a tag. The workflow file is read from the tag itself, so
-# the build always matches the code being released.
+# Two things are built on each platform: the desktop application, and the
+# command line indexer for people who would rather not have a window.
+#
+# Triggered by pushing a tag, or dispatched with one. The workflow file is read
+# from the ref it runs on, so the build always matches the code being released.
 on:
   push:
     tags: ['v*']
@@ -22,8 +25,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The tag and the version in Cargo.toml must agree, or `mochi --version`
-  # reports something different from the release people downloaded.
+  # The tag and the version in Cargo.toml must agree, or the installer reports
+  # something different from the release people downloaded. tauri.conf.json
+  # deliberately has no version field: it takes the crate's.
   check-version:
     name: tag matches Cargo.toml
     runs-on: ubuntu-latest
@@ -44,6 +48,10 @@ jobs:
             echo "::error::tag $tag does not match the workspace version $version" >&2
             exit 1
           fi
+          if grep -q '"version"' crates/mochi-desktop/tauri.conf.json; then
+            echo "::error::tauri.conf.json has its own version field; it should take the crate's" >&2
+            exit 1
+          fi
           echo "releasing $tag from workspace version $version"
 
   windows:
@@ -53,24 +61,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: npm ci
 
       # A release nobody tested is not a release.
       - name: Test
         run: cargo test --workspace --release --locked
 
-      - name: Build
+      # Builds the interface and wraps it, producing the installers.
+      - name: Build the application
+        run: npx tauri build --config crates/mochi-desktop/tauri.conf.json
+
+      - name: Build the command line indexer
         run: cargo build --release --locked -p mochi-cli
 
-      - name: Package
+      - name: Collect
         shell: pwsh
         run: |
           $version = "${{ needs.check-version.outputs.version }}"
           New-Item -ItemType Directory -Path staging, dist | Out-Null
+
+          Get-ChildItem target/release/bundle/nsis/*-setup.exe |
+            ForEach-Object { Copy-Item $_ "dist/Mochi-$version-windows-x86_64-setup.exe" }
+          Get-ChildItem target/release/bundle/msi/*.msi |
+            ForEach-Object { Copy-Item $_ "dist/Mochi-$version-windows-x86_64.msi" }
+
           Copy-Item target/release/mochi.exe staging/
           Copy-Item LICENSE, NOTICE, README.md staging/
-          Compress-Archive -Path staging/* -DestinationPath "dist/mochi-$version-windows-x86_64.zip"
-          Copy-Item target/release/mochi.exe "dist/mochi-$version-windows-x86_64.exe"
+          Compress-Archive -Path staging/* -DestinationPath "dist/mochi-cli-$version-windows-x86_64.zip"
+          Get-ChildItem dist
 
       - uses: actions/upload-artifact@v4
         with:
@@ -86,23 +111,36 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Test
         run: cargo test --workspace --release --locked
 
-      # NFR-4.1 covers both Apple Silicon and Intel, so ship one binary that
+      # NFR-4.1 covers both Apple Silicon and Intel, so ship one build that
       # runs on either rather than making people pick.
-      - name: Build both architectures
+      - name: Build the application
+        run: npx tauri build --config crates/mochi-desktop/tauri.conf.json --target universal-apple-darwin
+
+      - name: Build the command line indexer
         run: |
           cargo build --release --locked -p mochi-cli --target aarch64-apple-darwin
           cargo build --release --locked -p mochi-cli --target x86_64-apple-darwin
 
-      - name: Package
+      - name: Collect
         run: |
           set -euo pipefail
           version="${{ needs.check-version.outputs.version }}"
           mkdir -p dist staging
+
+          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg \
+            "dist/Mochi-$version-macos-universal.dmg"
 
           lipo -create -output staging/mochi \
             target/aarch64-apple-darwin/release/mochi \
@@ -130,9 +168,8 @@ jobs:
           before doing any of this.
           TXT
 
-          hdiutil create -volname "Mochi $version" -srcfolder staging \
-            -ov -format UDZO "dist/mochi-$version-macos-universal.dmg"
-          tar -czf "dist/mochi-$version-macos-universal.tar.gz" -C staging .
+          tar -czf "dist/mochi-cli-$version-macos-universal.tar.gz" -C staging .
+          ls -la dist
 
       - uses: actions/upload-artifact@v4
         with:
@@ -163,54 +200,53 @@ jobs:
 
       - name: Write release notes
         env:
-          TAG: ${{ needs.check-version.outputs.tag }}
           VERSION: ${{ needs.check-version.outputs.version }}
         run: |
           cat > notes.md <<TXT
-          Preview build of the Mochi command line indexer, from
-          \`${{ github.sha }}\`.
+          Preview build of Mochi, from \`${{ github.sha }}\`.
 
           ## What this is
 
-          \`mochi\` collects the sessions Codex CLI, Claude Code and OpenCode
-          leave on your machine, groups them by repository, and makes them
-          searchable. It reads only: session files are never modified, and
-          nothing is sent anywhere.
+          Mochi collects the sessions Codex CLI, Claude Code and OpenCode leave
+          on your machine, groups them by repository, and makes them readable
+          and searchable. It works entirely offline: session files are never
+          modified, and nothing is sent anywhere.
 
-              mochi doctor          # which CLIs and stores were found
-              mochi scan            # build or refresh the index
-              mochi repos
-              mochi sessions
-              mochi search ECONNRESET
-              mochi resume 42       # prints the command; never runs it
+          The window shows your repositories and their sessions on the left, the
+          transcript in the middle, and what each session is on the right.
+          Credentials that end up in session logs are masked.
 
-          ## What this is not
+          ## What is not built yet
 
-          **There is no graphical application yet.** The desktop UI, the
-          integrated terminal and the delete flow are not built. This is the
-          milestone-1 core with a command line front end.
+          - The window **reads**: no tags, notes, deleting or exporting from it.
+          - **Resume shows you the command** rather than launching it. The
+            integrated terminal is milestone 3.
+          - Diffs are not extracted; file changes appear as the tool output that
+            produced them.
+          - OpenCode's newer SQLite storage is detected and reported, not read.
 
-          ## These binaries are unsigned
+          ## These builds are unsigned
 
           Code signing and notarisation are not funded yet (R-7), so:
 
-          - **Windows** will show a SmartScreen warning. There is no
-            certificate behind this build.
-          - **macOS** will refuse to run it until you clear the quarantine
-            flag: \`xattr -d com.apple.quarantine ./mochi\`
+          - **Windows** will show a SmartScreen warning. Choose *More info* then
+            *Run anyway*, or check the file against \`SHA256SUMS.txt\` first.
+          - **macOS** will refuse to open the app because it is quarantined.
+            Either right-click the app and choose *Open*, or run:
+            \`xattr -dr com.apple.quarantine /Applications/Mochi.app\`
 
-          Check what you downloaded against \`SHA256SUMS.txt\` first, or build
-          from source — the instructions are in the README and need nothing
-          beyond a Rust toolchain.
+          Building from source needs nothing but a Rust toolchain and Node; the
+          instructions are in the README.
 
           ## Files
 
           | File | For |
           | --- | --- |
-          | \`mochi-${VERSION}-windows-x86_64.exe\` | Windows, the binary on its own |
-          | \`mochi-${VERSION}-windows-x86_64.zip\` | Windows, with LICENSE and NOTICE |
-          | \`mochi-${VERSION}-macos-universal.dmg\` | macOS, Apple Silicon and Intel |
-          | \`mochi-${VERSION}-macos-universal.tar.gz\` | macOS, same contents without the disk image |
+          | \`Mochi-${VERSION}-windows-x86_64-setup.exe\` | Windows, installer |
+          | \`Mochi-${VERSION}-windows-x86_64.msi\` | Windows, for deployment tooling |
+          | \`Mochi-${VERSION}-macos-universal.dmg\` | macOS, Apple Silicon and Intel |
+          | \`mochi-cli-${VERSION}-windows-x86_64.zip\` | the command line indexer, Windows |
+          | \`mochi-cli-${VERSION}-macos-universal.tar.gz\` | the command line indexer, macOS |
           | \`SHA256SUMS.txt\` | checksums for all of the above |
 
           Linux is not a supported target (Q-6) and no Linux build is attached;

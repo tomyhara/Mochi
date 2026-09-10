@@ -37,15 +37,17 @@ declare global {
 export class DesktopSource implements DataSource {
   readonly kind = 'desktop' as const;
   readonly canReveal = true;
+  // FR-7.8: launching needs the integrated terminal, which is milestone 3.
+  readonly canLaunch = false;
 
   static available(): boolean {
     return typeof window !== 'undefined' && typeof window.__MOCHI__?.invoke === 'function';
   }
 
-  async load(): Promise<IndexDocument> {
+  async load(revealSecrets: boolean): Promise<IndexDocument> {
     const bridge = window.__MOCHI__;
     if (!bridge) throw new Error('the desktop bridge is not available');
-    return (await bridge.invoke('load_index')) as IndexDocument;
+    return (await bridge.invoke('load_index', { revealSecrets })) as IndexDocument;
   }
 }
 

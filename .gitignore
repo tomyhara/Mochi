@@ -19,3 +19,6 @@ Cargo.lock.orig
 /blob-report
 /playwright/.cache
 /ui/dist
+
+# Tauri regenerates these on every build, and they differ per platform
+/crates/mochi-desktop/gen/schemas

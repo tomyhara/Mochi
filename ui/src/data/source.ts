@@ -25,7 +25,10 @@ import type { IndexDocument } from '../types';
  */
 export interface DataSource {
   readonly kind: 'fixture' | 'desktop';
-  load(): Promise<IndexDocument>;
+
+  /** Read everything. `revealSecrets` asks the source not to mask. */
+  load(revealSecrets: boolean): Promise<IndexDocument>;
+
   /**
    * Whether this source can hand back unmasked content on request.
    *
@@ -34,4 +37,14 @@ export interface DataSource {
    * happen at the source, so the view never holds a secret it is hiding.
    */
   readonly canReveal: boolean;
+
+  /**
+   * Whether this source can start a session, rather than only describe how.
+   *
+   * Nothing can yet. Starting an interactive CLI needs somewhere for it to
+   * be interactive, and that is the integrated terminal (FR-7.8), which is
+   * milestone 3. Until then the window says so rather than offering a button
+   * that does nothing.
+   */
+  readonly canLaunch: boolean;
 }

@@ -25,6 +25,7 @@ pub mod adapter;
 pub mod command;
 pub mod config;
 pub mod error;
+pub mod export;
 pub mod index;
 pub mod mask;
 pub mod model;
