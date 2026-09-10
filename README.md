@@ -76,6 +76,7 @@ The index goes to `%APPDATA%\Mochi\` on Windows and
 | Secret masking | working |
 | Resume command construction | working; `mochi resume` prints, the app will launch |
 | Desktop UI, integrated terminal, delete flow | not started — see [doc/ui-spec.md](doc/ui-spec.md) |
+| UI mockups | 32 screens, with the agreed corrections pinned by browser tests (`npx playwright test`) |
 
 Known gaps, each deliberate and recorded in the tests:
 

@@ -88,6 +88,41 @@ jobs:
         with:
           command: check bans licenses sources advisories
 
+  # The UI mockups are the implementation reference (FR-9.1) and a generated
+  # bundle, so a regeneration that drops an agreed correction is exactly the
+  # kind of thing nobody notices by hand.
+  ui-mocks:
+    name: UI mock tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # NFR-4b.2, the npm half of the licence policy.
+      - name: Check npm licences
+        run: ./scripts/check-npm-licenses.sh
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run tests
+        run: npx playwright test
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+
   # NFR-3.1 / NFR-4b.8: Mochi must not contain code that talks to the network.
   # Reads Cargo.lock, so it needs no toolchain of its own.
   no-network:

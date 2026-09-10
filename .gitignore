@@ -11,3 +11,10 @@ Cargo.lock.orig
 # Local scratch: never commit a real session file (NFR-4b.4)
 /scratch/
 *.local.jsonl
+
+# Node / Playwright
+/node_modules
+/test-results
+/playwright-report
+/blob-report
+/playwright/.cache
