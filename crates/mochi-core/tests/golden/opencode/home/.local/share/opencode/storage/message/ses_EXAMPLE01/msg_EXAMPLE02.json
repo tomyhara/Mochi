@@ -1,0 +1,1 @@
+{"id":"msg_EXAMPLE02","sessionID":"ses_EXAMPLE01","role":"assistant","modelID":"claude-opus-5","providerID":"anthropic","tokens":{"input":3200,"output":410,"reasoning":0,"cache":{"read":2048,"write":0}},"time":{"created":1756900010000,"completed":1756900600000},"path":{"cwd":"/Users/you/code/my-repo","root":"/Users/you/code/my-repo"}}

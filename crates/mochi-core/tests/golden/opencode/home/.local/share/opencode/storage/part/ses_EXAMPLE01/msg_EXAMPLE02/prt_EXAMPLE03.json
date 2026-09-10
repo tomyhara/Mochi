@@ -1,0 +1,1 @@
+{"id":"prt_EXAMPLE03","messageID":"msg_EXAMPLE02","sessionID":"ses_EXAMPLE01","type":"tool","callID":"call_EXAMPLE01","tool":"bash","state":{"status":"completed","input":{"command":"docker image ls --format '{{.Size}}' app:latest","description":"measure the image"},"output":"1.19GB","time":{"start":1756900020000,"end":1756900022000}}}
