@@ -35,7 +35,7 @@ use mochi_core::model::{ParseStatus, Role, ToolId};
 
 use crate::format::{bytes, clock, elide_middle, one_line, thousands, timestamp};
 use crate::theme::Palette;
-use crate::view::{groups, HitView, MessageView, SessionView, Snapshot};
+use crate::view::{groups, Group, HitView, MessageView, SessionView, Snapshot};
 use crate::worker::{About, Request, Response, Worker};
 
 /// How many sessions a repository shows before it has to be opened (FR-9.1).
@@ -142,9 +142,27 @@ struct Awaiting {
     generation: Generation,
 }
 
+/// The sidebar's groups, and what they were grouped from.
+///
+/// Grouping walks every session, and the sidebar is drawn on every frame —
+/// including every frame of typing in the filter box and of scrolling. On an
+/// index of the size NFR-1 is written for that is work worth not repeating
+/// while its answer cannot have changed.
+struct Grouped {
+    /// Which snapshot these were grouped from, by number.
+    snapshot: u64,
+    filter: String,
+    groups: Vec<Group>,
+}
+
 pub struct App {
     worker: Worker,
     snapshot: Snapshot,
+    /// How many snapshots the window has taken. Numbering them is how work
+    /// done on one — the sidebar's grouping — is recognised as still standing,
+    /// without comparing ten thousand sessions to find out.
+    snapshots: u64,
+    grouped: Option<Grouped>,
     transcript: Option<Transcript>,
     awaiting: Option<Awaiting>,
     /// Bumped whenever what has been read stops being what is true: a rescan,
@@ -188,6 +206,8 @@ impl App {
         App {
             worker,
             snapshot: Snapshot::default(),
+            snapshots: 0,
+            grouped: None,
             transcript: None,
             awaiting: None,
             generation: 0,
@@ -214,6 +234,27 @@ impl App {
     fn session(&self) -> Option<&SessionView> {
         let id = self.selected?;
         self.snapshot.sessions.iter().find(|s| s.id == id)
+    }
+
+    /// The sidebar's groups, grouped again only if the snapshot or the filter
+    /// has changed since they last were.
+    ///
+    /// Taken out of the window rather than borrowed from it, because drawing a
+    /// row can select a session, and a selection changes the window while the
+    /// rows are still being drawn. The caller puts them back.
+    fn grouping(&mut self) -> Grouped {
+        match self.grouped.take() {
+            Some(grouped)
+                if grouped.snapshot == self.snapshots && grouped.filter == self.filter =>
+            {
+                grouped
+            }
+            _ => Grouped {
+                snapshot: self.snapshots,
+                filter: self.filter.clone(),
+                groups: groups(&self.snapshot, &self.filter),
+            },
+        }
     }
 
     fn select(&mut self, id: i64) {
@@ -294,6 +335,7 @@ impl App {
                     self.busy = None;
                     self.error = None;
                     self.snapshot = *snapshot;
+                    self.snapshots += 1;
                     // Open what the user was doing last (FR-4.4), but never
                     // move the selection out from under them on a rescan.
                     let still_there = self
@@ -620,8 +662,11 @@ impl App {
                 );
                 ui.add_space(8.0);
 
-                let groups = groups(&self.snapshot, &self.filter);
-                if groups.is_empty() {
+                // Held while the rows are drawn — clicking one calls back into
+                // the window — and put back below, so that the next frame is
+                // free unless the snapshot or the filter has changed.
+                let grouped = self.grouping();
+                if grouped.groups.is_empty() {
                     ui.label(
                         RichText::new(if self.snapshot.sessions.is_empty() {
                             "Nothing indexed yet. Rescan to look again."
@@ -630,6 +675,7 @@ impl App {
                         })
                         .color(palette.text_muted),
                     );
+                    self.grouped = Some(grouped);
                     return;
                 }
 
@@ -637,7 +683,7 @@ impl App {
                     .id_salt("sidebar-scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        for group in groups {
+                        for group in &grouped.groups {
                             let open = self.opened.contains(&group.key);
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new(one_line(&group.name, 26)).strong());
@@ -688,6 +734,7 @@ impl App {
                             ui.add_space(10.0);
                         }
                     });
+                self.grouped = Some(grouped);
             });
     }
 
