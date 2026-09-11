@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The document both front ends read (`mochi_core::export`).
+//! The document `mochi export` writes (`mochi_core::export`).
 //!
-//! The interface is written against this shape (`ui/src/types.ts`), so a
-//! change here that nobody notices is a change that breaks the window.
+//! It is the one shape Mochi promises to anything outside it, so a change here
+//! that nobody notices is a change that breaks somebody else's script.
 
 use mochi_core::command::QuoteStyle;
 use mochi_core::export::{document, ExportOptions, SCHEMA};

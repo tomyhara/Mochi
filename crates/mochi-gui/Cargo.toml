@@ -1,0 +1,17 @@
+[package]
+name = "mochi-gui"
+description = "The Mochi window: a native interface drawn by Mochi itself"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+mochi-core.workspace = true
+eframe.workspace = true
+egui.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -1,27 +1,31 @@
 [workspace]
 resolver = "2"
-members = ["crates/mochi-core", "crates/mochi-cli", "crates/mochi-desktop"]
+members = ["crates/mochi-core", "crates/mochi-cli", "crates/mochi-gui"]
 
 [workspace.package]
 version = "0.0.1"
 edition = "2021"
-rust-version = "1.77"
+rust-version = "1.92"
 license = "Apache-2.0"
 repository = "https://github.com/tomyhara/Mochi"
 authors = ["The Mochi Authors"]
 
 [workspace.dependencies]
 mochi-core = { path = "crates/mochi-core", version = "0.0.1" }
+mochi-gui = { path = "crates/mochi-gui", version = "0.0.1" }
 
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 clap = { version = "4", features = ["derive"] }
+# The window. `eframe` brings its own renderer (wgpu: Direct3D 12 on Windows,
+# Metal on macOS) and its own widgets, so nothing outside the executable is
+# needed to draw one — no web view, no runtime to install.
+eframe = "0.35"
+egui = "0.35"
 regex = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2", features = [] }
-tauri-build = { version = "2", features = [] }
 tempfile = "3"
 thiserror = "2"
 unicode-normalization = "0.1"

@@ -12,12 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! `mochi` — the command line indexer.
+//! `mochi` — the whole of Mochi, in one executable.
 //!
-//! This is the milestone-1 deliverable: everything the desktop app will need,
-//! driven from a terminal so the core can be exercised before there is a UI.
-//! It reads session stores, builds the index, and prints what it found. It
-//! never launches a CLI and never writes to a session file.
+//! Run it with no arguments and it opens the window; run it with a subcommand
+//! and it is the command line indexer. One file, because a product whose point
+//! is that it works offline and touches nothing should not need an installer
+//! to arrive (NFR-4b.7).
+//!
+//! The command line half reads session stores, builds the index, and prints
+//! what it found. It never launches a CLI and never writes to a session file.
+
+// Windows: this is a windowed program, so it is built for the GUI subsystem
+// and does not drag a console box along behind the window. `console::attach`
+// below borrows the calling terminal's console back when there are arguments,
+// which is what makes the same file work as a command line tool.
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
@@ -49,8 +58,9 @@ struct Cli {
     #[command(flatten)]
     global: GlobalArgs,
 
+    /// With no subcommand, Mochi opens its window.
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Args, Clone)]
@@ -70,6 +80,8 @@ struct GlobalArgs {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Open the Mochi window. The default when nothing else is asked for.
+    Ui,
     /// Report which tools and session stores were found.
     Doctor,
     /// Find sessions and bring the index up to date.
@@ -82,8 +94,17 @@ enum Command {
     Search(SearchArgs),
     /// Print the command that resumes a session. Does not run it.
     Resume(ResumeArgs),
-    /// Write the whole index as JSON, for the interface to render.
+    /// Write the whole index as JSON.
     Export(ExportArgs),
+    /// Print the attribution notice for everything Mochi is built from.
+    Licenses(LicenseArgs),
+}
+
+#[derive(Args)]
+struct LicenseArgs {
+    /// Also print the full text of the Apache License 2.0.
+    #[arg(long)]
+    full: bool,
 }
 
 #[derive(Args)]
@@ -155,6 +176,13 @@ struct ResumeArgs {
 }
 
 fn main() {
+    // Arguments mean the terminal is where the answer goes — including
+    // clap's own, so this happens before parsing.
+    #[cfg(windows)]
+    if std::env::args_os().len() > 1 {
+        console::attach();
+    }
+
     if let Err(error) = run() {
         eprintln!("mochi: {error:#}");
         std::process::exit(1);
@@ -164,13 +192,60 @@ fn main() {
 fn run() -> Result<()> {
     let cli = Cli::parse();
     match &cli.command {
-        Command::Doctor => doctor(&cli.global),
-        Command::Scan(args) => scan(&cli.global, args),
-        Command::Repos => repos(&cli.global),
-        Command::Sessions(args) => sessions(&cli.global, args),
-        Command::Search(args) => search(&cli.global, args),
-        Command::Resume(args) => resume(&cli.global, args),
-        Command::Export(args) => export(&cli.global, args),
+        None | Some(Command::Ui) => ui(&cli.global),
+        Some(Command::Doctor) => doctor(&cli.global),
+        Some(Command::Scan(args)) => scan(&cli.global, args),
+        Some(Command::Repos) => repos(&cli.global),
+        Some(Command::Sessions(args)) => sessions(&cli.global, args),
+        Some(Command::Search(args)) => search(&cli.global, args),
+        Some(Command::Resume(args)) => resume(&cli.global, args),
+        Some(Command::Export(args)) => export(&cli.global, args),
+        Some(Command::Licenses(args)) => licenses(args),
+    }
+}
+
+/// Open the window.
+///
+/// The global flags mean the same here as they do anywhere else: `--db` for an
+/// index kept away from the real one, `--home` to browse a fixture tree, and
+/// `--no-mask` to open with credentials shown.
+fn ui(global: &GlobalArgs) -> Result<()> {
+    mochi_gui::run(mochi_gui::Options {
+        index_path: global.db.clone(),
+        home: global.home.clone(),
+        reveal_secrets: global.no_mask,
+    })
+    .map_err(|error| anyhow::anyhow!(error))
+}
+
+/// Print into the console that started us.
+///
+/// Windows gives a GUI program no console of its own, so without this a
+/// subcommand would run and say nothing. Written out rather than taken from a
+/// crate: it is one call, and the alternative is a dependency in the shipped
+/// binary for three lines of FFI.
+#[cfg(windows)]
+mod console {
+    /// `ATTACH_PARENT_PROCESS`: the console of whatever started this process.
+    const PARENT: u32 = u32::MAX;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn AttachConsole(process_id: u32) -> i32;
+        fn AllocConsole() -> i32;
+    }
+
+    pub fn attach() {
+        // SAFETY: both take no pointers and return a boolean. Failure means
+        // there was no console to attach to, which is why the fallback exists.
+        unsafe {
+            if AttachConsole(PARENT) == 0 {
+                // Started from somewhere with no console at all — Explorer,
+                // a shortcut, a scheduler. Make one rather than losing the
+                // output entirely.
+                AllocConsole();
+            }
+        }
     }
 }
 
@@ -461,10 +536,10 @@ fn resume(global: &GlobalArgs, args: &ResumeArgs) -> Result<()> {
     Ok(())
 }
 
-/// Write the document the interface reads.
+/// Write the whole index as one JSON document.
 ///
-/// The shape lives in `mochi_core::export` because the desktop shell produces
-/// exactly the same thing; two implementations of one contract drift.
+/// The shape lives in `mochi_core::export`, which is also where it is
+/// documented as the one format Mochi promises to anything outside it.
 fn export(global: &GlobalArgs, args: &ExportArgs) -> Result<()> {
     let index = open_index(global)?;
     let document = mochi_core::export::document(
@@ -488,6 +563,27 @@ fn export(global: &GlobalArgs, args: &ExportArgs) -> Result<()> {
             eprintln!("wrote {}", path.display());
         }
         None => println!("{text}"),
+    }
+    Ok(())
+}
+
+/// The attribution Apache-2.0 §4 asks a redistributor to pass on.
+///
+/// Carried inside the executable rather than shipped beside it: Mochi is one
+/// file on purpose, and a licence notice in a second file is a licence notice
+/// that gets separated from the binary the first time somebody copies it.
+fn licenses(args: &LicenseArgs) -> Result<()> {
+    const NOTICE: &str = include_str!("../../../NOTICE");
+    const LICENSE: &str = include_str!("../../../LICENSE");
+
+    print!("{NOTICE}");
+    if args.full {
+        println!();
+        print!("{LICENSE}");
+    } else {
+        println!();
+        println!("Mochi itself is under the Apache License 2.0; run `mochi licenses --full`");
+        println!("for its text, or see https://github.com/tomyhara/Mochi/blob/main/LICENSE");
     }
     Ok(())
 }

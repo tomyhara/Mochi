@@ -33,10 +33,11 @@ FORBIDDEN=(
 
 # Resolve the graph per target rather than reading Cargo.lock.
 #
-# Cargo.lock lists every platform's dependencies at once, which over-reports:
-# Tauri depends on reqwest only for Android and iOS, and Mochi ships to neither.
-# Asking cargo what each shipped target actually builds is both accurate and
-# still catches the regression this guards against.
+# Cargo.lock lists every platform's dependencies at once, which over-reports: a
+# windowing stack carries dependencies for platforms Mochi does not ship to,
+# and some of those do talk to the network. Asking cargo what each shipped
+# target actually builds is both accurate and still catches the regression this
+# guards against.
 #
 # Build and dev dependencies are excluded (-e normal): they do not ship.
 TARGETS=(

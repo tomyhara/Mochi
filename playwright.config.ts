@@ -15,16 +15,15 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Browser tests, in two sets.
+ * Browser tests, for one thing only: the design mock in `doc/`, which FR-9.1
+ * names as the reference the window is built against.
  *
- * `ui.spec.ts` and `ui-contrast.spec.ts` drive the interface itself, served
- * from `ui/dist`, against the fixture that `scripts/build-ui-fixture.sh`
- * produces by running the real scanner over the golden session files.
+ * The mock is a generated bundle, so regenerating it can silently drop a
+ * correction that was agreed in review; these tests pin the decisions from
+ * doc/ui-spec.md and doc/CHANGELOG-ui.md.
  *
- * `ui-mocks.spec.ts` opens the design mock in `doc/`, which FR-9.1 names as
- * the reference the interface is built against. It is a generated bundle, so
- * regenerating it can silently drop a correction that was agreed in review;
- * those tests pin the decisions from doc/ui-spec.md and doc/CHANGELOG-ui.md.
+ * The interface itself is no longer a web page — it is drawn by `mochi-gui`
+ * and tested in Rust, `crates/mochi-gui/tests/`. Nothing here serves it.
  */
 export default defineConfig({
   testDir: './e2e',
@@ -32,16 +31,8 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],
-  // The interface tests need it served; the mock tests open a local file and
-  // ignore this entirely.
-  webServer: {
-    command: 'npm run build && npm run preview',
-    url: 'http://localhost:4173/',
-    reuseExistingServer: !process.env.CI,
-    timeout: 180_000,
-  },
+  // The mock tests open a local file, so there is nothing to serve.
   use: {
-    baseURL: 'http://localhost:4173',
     trace: 'retain-on-failure',
     launchOptions: {
       // Environments that ship their own Chromium (CI images, this repo's
