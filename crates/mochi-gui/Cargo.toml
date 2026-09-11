@@ -12,6 +12,7 @@ authors.workspace = true
 mochi-core.workspace = true
 eframe.workspace = true
 egui.workspace = true
+skrifa.workspace = true
 
 [dev-dependencies]
 # Only the tests reach for SQL directly: a transcript that cannot be read is a

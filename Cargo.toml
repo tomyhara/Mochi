@@ -26,6 +26,11 @@ regex = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# The font parser `epaint` itself uses, for asking whether a face will parse
+# before installing it — epaint panics rather than answering. Already in the
+# graph through `epaint`; kept at the version it resolves to there so that the
+# answer is the one epaint would give.
+skrifa = "0.42"
 tempfile = "3"
 thiserror = "2"
 unicode-normalization = "0.1"
