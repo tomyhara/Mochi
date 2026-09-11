@@ -58,6 +58,15 @@ wildcards = "deny"
 # same list from the other direction so a missing cargo-deny does not silently
 # drop the guarantee.
 deny = [
+  # Two `windows` crates in one graph is not a duplicate, it is a build
+  # failure: the Direct3D 12 types the window is drawn through exist once per
+  # version, and a heap from one cannot be passed to a device from the other.
+  # `gpu-allocator` accepts a range of versions so that it can be unified with
+  # whatever its parent uses; nothing makes that unification happen, so this is
+  # what notices when it has not. The fix is to pin the odd one out in
+  # Cargo.lock, not to add an exception here.
+  { crate = "windows", deny-multiple-versions = true },
+  { crate = "windows-core", deny-multiple-versions = true },
   { crate = "reqwest", reason = "Mochi makes no network calls (NFR-3.1)" },
   { crate = "hyper", reason = "Mochi makes no network calls (NFR-3.1)" },
   { crate = "ureq", reason = "Mochi makes no network calls (NFR-3.1)" },
