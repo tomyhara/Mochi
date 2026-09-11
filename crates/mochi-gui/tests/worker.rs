@@ -25,7 +25,7 @@ use std::time::Duration;
 use mochi_core::index::{Index, RepositoryRecord, SessionRecord, SessionStatus};
 use mochi_core::model::{Message, ParseStatus, Role, ToolId};
 use mochi_gui::view::Snapshot;
-use mochi_gui::worker::{Request, Response, Worker};
+use mochi_gui::worker::{About, Request, Response, Worker};
 
 const KEY: &str = "OPENAI_API_KEY=sk-EXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEX";
 const WAIT: Duration = Duration::from_secs(20);
@@ -280,7 +280,10 @@ fn an_unusable_index_is_reported_rather_than_hidden() {
 
     loop {
         match worker.recv_timeout(WAIT).expect("no answer") {
-            Response::Failed(message) => {
+            Response::Failed { about, message } => {
+                // The window shows this in the status bar rather than in one
+                // session's pane, which is what `about` is for.
+                assert_eq!(about, About::Index);
                 assert!(message.contains("index"), "{message}");
                 break;
             }

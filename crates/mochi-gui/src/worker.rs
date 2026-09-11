@@ -71,7 +71,25 @@ pub enum Response {
         text: String,
         hits: Vec<HitView>,
     },
-    Failed(String),
+    /// A request could not be answered. `about` says which one, because where
+    /// the reason belongs on screen depends on it: a transcript that cannot be
+    /// read is an answer about that session and belongs in the pane that was
+    /// going to show it, not in the status bar the whole window shares.
+    Failed {
+        about: About,
+        message: String,
+    },
+}
+
+/// What a [`Response::Failed`] was about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum About {
+    /// Opening, reading or scanning the index: the window as a whole.
+    Index,
+    /// One session's transcript.
+    Transcript(i64),
+    /// A search.
+    Search,
 }
 
 /// A handle to the index thread.
@@ -195,14 +213,20 @@ impl State {
                     session_id,
                     messages,
                 }),
-                Err(error) => out.send(Response::Failed(error)),
+                Err(message) => out.send(Response::Failed {
+                    about: About::Transcript(session_id),
+                    message,
+                }),
             },
             Request::Search {
                 text,
                 reveal_secrets,
             } => match self.search(&text, reveal_secrets) {
                 Ok(hits) => out.send(Response::Hits { text, hits }),
-                Err(error) => out.send(Response::Failed(error)),
+                Err(message) => out.send(Response::Failed {
+                    about: About::Search,
+                    message,
+                }),
             },
         }
     }
@@ -211,7 +235,10 @@ impl State {
     fn loading(&mut self, reveal_secrets: bool, force_scan: bool, out: &Outbox) -> bool {
         match self.load(reveal_secrets, force_scan, out) {
             Ok(connected) => connected,
-            Err(error) => out.send(Response::Failed(error)),
+            Err(message) => out.send(Response::Failed {
+                about: About::Index,
+                message,
+            }),
         }
     }
 

@@ -36,7 +36,7 @@ use mochi_core::model::{ParseStatus, Role, ToolId};
 use crate::format::{bytes, clock, elide_middle, one_line, thousands, timestamp};
 use crate::theme::Palette;
 use crate::view::{groups, HitView, MessageView, SessionView, Snapshot};
-use crate::worker::{Request, Response, Worker};
+use crate::worker::{About, Request, Response, Worker};
 
 /// How many sessions a repository shows before it has to be opened (FR-9.1).
 const COLLAPSED: usize = 5;
@@ -113,13 +113,43 @@ impl ThemeChoice {
     }
 }
 
+/// Which reading of the index a transcript belongs to.
+///
+/// A rescan can change what is in the session being read, so a transcript read
+/// before it is stale whether or not it arrived before it. Counting the
+/// readings is what tells the two apart: an answer to a question asked of the
+/// old index is recognisable as such, rather than merely as an answer that
+/// happens to be present.
+type Generation = u64;
+
+/// A transcript being read, or read.
+///
+/// One session at a time, so that a big index does not become a big process
+/// (NFR-1.7).
+struct Transcript {
+    session_id: i64,
+    generation: Generation,
+    /// The entries, or why there are none. A transcript that could not be read
+    /// is an answer about this session, and the pane that was going to show it
+    /// is where the reason belongs (FR-9.6).
+    body: Result<Vec<MessageView>, String>,
+}
+
+/// A transcript that has been asked for and not yet answered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Awaiting {
+    session_id: i64,
+    generation: Generation,
+}
+
 pub struct App {
     worker: Worker,
     snapshot: Snapshot,
-    /// The transcript in hand, and whose it is. One session at a time, so that
-    /// a big index does not become a big process (NFR-1.7).
-    transcript: Option<(i64, Vec<MessageView>)>,
-    awaiting_transcript: bool,
+    transcript: Option<Transcript>,
+    awaiting: Option<Awaiting>,
+    /// Bumped whenever what has been read stops being what is true: a rescan,
+    /// or a change of masking.
+    generation: Generation,
     selected: Option<i64>,
     filter: String,
     query: String,
@@ -159,7 +189,8 @@ impl App {
             worker,
             snapshot: Snapshot::default(),
             transcript: None,
-            awaiting_transcript: false,
+            awaiting: None,
+            generation: 0,
             selected: None,
             filter: String::new(),
             query: String::new(),
@@ -193,7 +224,37 @@ impl App {
         self.transcript = None;
         self.expanded.clear();
         self.shown = PAGE;
-        self.awaiting_transcript = true;
+        self.ensure_transcript();
+    }
+
+    /// Ask for the selected session's transcript unless the one in hand, or
+    /// the one already asked for, is both its own and current.
+    ///
+    /// Everything that invalidates a transcript — selecting another session,
+    /// rescanning, unmasking — goes through here, so there is one answer to
+    /// "is what is on screen still true", rather than one per caller.
+    fn ensure_transcript(&mut self) {
+        let Some(id) = self.selected else {
+            return;
+        };
+        let current = |session_id: i64, generation: Generation| {
+            session_id == id && generation == self.generation
+        };
+        let in_hand = self
+            .transcript
+            .as_ref()
+            .is_some_and(|t| current(t.session_id, t.generation));
+        let asked = self
+            .awaiting
+            .is_some_and(|a| current(a.session_id, a.generation));
+        if in_hand || asked {
+            return;
+        }
+
+        self.awaiting = Some(Awaiting {
+            session_id: id,
+            generation: self.generation,
+        });
         self.worker.send(Request::Messages {
             session_id: id,
             reveal_secrets: self.reveal,
@@ -209,16 +270,13 @@ impl App {
         self.transcript = None;
         self.hits.clear();
         self.busy = Some("Reading the index…");
+        // What is on screen was read with the other masking, so it is not an
+        // answer to the question now being asked.
+        self.generation += 1;
         self.worker.send(Request::Load {
             reveal_secrets: reveal,
         });
-        if let Some(id) = self.selected {
-            self.awaiting_transcript = true;
-            self.worker.send(Request::Messages {
-                session_id: id,
-                reveal_secrets: reveal,
-            });
-        }
+        self.ensure_transcript();
         if !self.query.trim().is_empty() {
             self.worker.send(Request::Search {
                 text: self.query.clone(),
@@ -246,47 +304,67 @@ impl App {
                         if let Some(first) = self.snapshot.sessions.first().map(|s| s.id) {
                             self.select(first);
                         }
-                    } else if let Some(id) = self.selected {
+                    } else {
                         // A rescan can have changed what is in the session the
-                        // user is reading, so whatever is on screen is stale.
-                        if self.transcript.is_none() && !self.awaiting_transcript {
-                            self.awaiting_transcript = true;
-                            self.worker.send(Request::Messages {
-                                session_id: id,
-                                reveal_secrets: self.reveal,
-                            });
-                        }
+                        // user is reading, so whatever was read before it is
+                        // stale — including an answer that arrived while the
+                        // scan was running.
+                        self.ensure_transcript();
                     }
                 }
                 Response::Messages {
                     session_id,
                     messages,
-                } => {
-                    // A late answer for a session the user has already left.
-                    if self.selected == Some(session_id) {
-                        self.transcript = Some((session_id, messages));
-                        self.awaiting_transcript = false;
-                    }
-                }
+                } => self.answered(session_id, Ok(messages)),
                 Response::Hits { text, hits } => {
                     if text == self.query {
                         self.hits = hits;
                     }
                 }
-                Response::Failed(message) => {
-                    self.busy = None;
-                    self.awaiting_transcript = false;
-                    self.error = Some(message);
-                }
+                Response::Failed { about, message } => match about {
+                    About::Transcript(session_id) => self.answered(session_id, Err(message)),
+                    // The index itself, or a search: neither belongs to one
+                    // session, so the status bar is where it is said.
+                    About::Index | About::Search => {
+                        self.busy = None;
+                        self.error = Some(message);
+                    }
+                },
             }
         }
+    }
+
+    /// Take a transcript, or the reason there is not one.
+    ///
+    /// Dropped unless it answers the question actually being asked: a session
+    /// the user has already left, or a reading of the index that a rescan has
+    /// since replaced, is not an answer at all.
+    fn answered(&mut self, session_id: i64, body: Result<Vec<MessageView>, String>) {
+        let Some(asked) = self.awaiting.filter(|a| a.session_id == session_id) else {
+            return;
+        };
+        self.awaiting = None;
+        if asked.generation != self.generation {
+            // Asked before a rescan or a change of masking. Ask again, now.
+            self.ensure_transcript();
+            return;
+        }
+        self.transcript = Some(Transcript {
+            session_id,
+            generation: asked.generation,
+            body,
+        });
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
         if ctx.input_mut(|input| input.consume_key(Modifiers::COMMAND, Key::K)) {
             self.focus_search = true;
         }
-        if ctx.input_mut(|input| input.consume_key(Modifiers::COMMAND, Key::R)) {
+        // Guarded like the Rescan button: every press during a scan would
+        // otherwise queue another whole scan behind the one running.
+        if ctx.input_mut(|input| input.consume_key(Modifiers::COMMAND, Key::R))
+            && self.busy.is_none()
+        {
             self.rescan();
         }
     }
@@ -294,9 +372,11 @@ impl App {
     fn rescan(&mut self) {
         self.busy = Some("Scanning your session stores…");
         self.status = None;
-        // What is on screen was read before the scan; it is answered again
-        // when the fresh snapshot arrives.
+        // What is on screen was read before the scan, and so is any answer
+        // still in flight: the session's file can grow while the scan runs.
+        // Both are asked for again when the fresh snapshot arrives.
         self.transcript = None;
+        self.generation += 1;
         self.worker.send(Request::Rescan {
             reveal_secrets: self.reveal,
         });
@@ -796,13 +876,43 @@ impl App {
             return;
         }
 
-        let Some((_, messages)) = &self.transcript else {
+        let selected = self.selected.expect("a session is selected");
+        let ready = self
+            .transcript
+            .as_ref()
+            .is_some_and(|transcript| transcript.session_id == selected);
+        if !ready {
+            // Nothing in hand. Either the answer is on its way, or something
+            // dropped the question — a stale answer, a rescan — in which case
+            // asking again here is what keeps the spinner from being a lie.
+            self.ensure_transcript();
             ui.horizontal(|ui| {
                 ui.add_space(24.0);
                 ui.add(egui::Spinner::new().size(14.0));
                 ui.label(RichText::new("Reading the transcript…").color(palette.text_muted));
             });
             return;
+        }
+
+        let messages = match &self.transcript.as_ref().expect("checked above").body {
+            Ok(messages) => messages,
+            // FR-9.6: the reason belongs where the transcript would have been.
+            // The status bar is for what has gone wrong with the window, and a
+            // session that loads fine next would clear it anyway.
+            Err(reason) => {
+                let reason = format!("The index answered: {reason}");
+                empty(
+                    ui,
+                    palette,
+                    "This transcript could not be read",
+                    &[
+                        &reason,
+                        "The session itself is still listed, and the panel on the right says where \
+                         its file is. Rescan to read it again.",
+                    ],
+                );
+                return;
+            }
         };
 
         let selection: Vec<&MessageView> = match tab {
