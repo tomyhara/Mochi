@@ -132,10 +132,16 @@ mochi ui              # the window, asked for explicitly
 ```
 
 On Windows this is a windowed executable, so that double-clicking it does not
-also open a console box. Run with arguments it borrows the console that started
-it, which has one visible oddity: `cmd.exe` and PowerShell do not wait for it,
-so your prompt comes back before the output does. Redirecting to a file, or
-piping, behaves normally.
+also open a console box. A subcommand borrows the console that started it, which
+has one visible oddity: `cmd.exe` and PowerShell do not wait for it, so your
+prompt comes back before the output does. Redirecting to a file, or piping,
+behaves normally — the console is borrowed without taking the output away from
+wherever it was already going.
+
+The window itself never takes a console, with or without flags, so a shortcut to
+`mochi.exe --no-mask` opens the window and nothing else. If it cannot open at
+all — no usable graphics adapter, an index that cannot be written — it says why
+in a message box, since a double-click has nowhere else to read it.
 
 Useful flags: `--db <path>` to keep an experiment away from your real index,
 `--home <path>` to point at a fixture tree instead of your home directory, and

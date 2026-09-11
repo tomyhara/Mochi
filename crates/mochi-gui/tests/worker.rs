@@ -18,12 +18,14 @@
 //! show them somebody else's session, so they are checked against a real
 //! index rather than a stub.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use mochi_core::index::{Index, RepositoryRecord, SessionRecord, SessionStatus};
 use mochi_core::model::{Message, ParseStatus, Role, ToolId};
 use mochi_gui::view::Snapshot;
-use mochi_gui::worker::{Request, Response, Worker};
+use mochi_gui::worker::{About, Request, Response, Worker};
 
 const KEY: &str = "OPENAI_API_KEY=sk-EXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLEEX";
 const WAIT: Duration = Duration::from_secs(20);
@@ -215,6 +217,53 @@ fn a_session_whose_directory_is_gone_carries_the_reason_instead_of_a_command() {
     }
 }
 
+/// Every answer has to wake the window, progress included. A window sitting
+/// idle repaints only when something asks it to, so a `Busy` message sent
+/// without a wake leaves the status bar describing the wrong thing for as long
+/// as the work takes — which on a first-run scan is minutes.
+#[test]
+fn every_answer_wakes_the_window_including_progress() {
+    let dir = tempfile::tempdir().unwrap();
+    // An empty index, so that loading scans and sends progress of its own
+    // rather than only the snapshot at the end.
+    let wakes = Arc::new(AtomicUsize::new(0));
+    let counter = Arc::clone(&wakes);
+    let worker = Worker::spawn(
+        Some(dir.path().join("index.sqlite3")),
+        Some(dir.path().to_path_buf()),
+        move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        },
+    );
+
+    worker.send(Request::Load {
+        reveal_secrets: false,
+    });
+    let mut answers = 0;
+    while !matches!(
+        worker.recv_timeout(WAIT).expect("no answer"),
+        Response::Loaded(_)
+    ) {
+        answers += 1;
+    }
+    answers += 1;
+    // Busy, Busy (the scan), Scanned, Loaded: the ones in the middle are
+    // exactly the messages that used to arrive without a wake.
+    assert!(answers >= 3, "only {answers} answers");
+
+    // The wake comes just after the send, so an answer can be in hand before
+    // its wake has run. Give the thread a moment to finish the last one.
+    let deadline = std::time::Instant::now() + WAIT;
+    while wakes.load(Ordering::SeqCst) < answers && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(
+        wakes.load(Ordering::SeqCst),
+        answers,
+        "one wake per answer, progress included"
+    );
+}
+
 /// An index that cannot be opened is the first thing a user sees when
 /// something is wrong, so the answer has to name the file rather than fail
 /// silently.
@@ -231,7 +280,10 @@ fn an_unusable_index_is_reported_rather_than_hidden() {
 
     loop {
         match worker.recv_timeout(WAIT).expect("no answer") {
-            Response::Failed(message) => {
+            Response::Failed { about, message } => {
+                // The window shows this in the status bar rather than in one
+                // session's pane, which is what `about` is for.
+                assert_eq!(about, About::Index);
                 assert!(message.contains("index"), "{message}");
                 break;
             }

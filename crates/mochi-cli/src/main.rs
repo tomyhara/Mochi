@@ -24,8 +24,8 @@
 
 // Windows: this is a windowed program, so it is built for the GUI subsystem
 // and does not drag a console box along behind the window. `console::attach`
-// below borrows the calling terminal's console back when there are arguments,
-// which is what makes the same file work as a command line tool.
+// below borrows the calling terminal's console back for the subcommands that
+// print, which is what makes the same file work as a command line tool.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::io::{self, IsTerminal, Write};
@@ -176,21 +176,54 @@ struct ResumeArgs {
 }
 
 fn main() {
-    // Arguments mean the terminal is where the answer goes — including
-    // clap's own, so this happens before parsing.
+    // Which command this is decides where its answer goes, so the arguments
+    // are read first. clap's own output — a usage error, `--help` — is an
+    // answer to something typed at a prompt and needs a console just as much.
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(reply) => {
+            #[cfg(windows)]
+            console::attach();
+            let _ = reply.print();
+            std::process::exit(reply.exit_code());
+        }
+    };
+
+    // Only the subcommands that print take a console. The window never does:
+    // launched from anything that is not a terminal — a shortcut running
+    // `mochi.exe --no-mask`, a scheduler, `mochi.exe ui` — it would otherwise
+    // find no console to borrow, make one, and leave an empty black box beside
+    // the window for the rest of the session.
     #[cfg(windows)]
-    if std::env::args_os().len() > 1 {
+    if !matches!(cli.command, None | Some(Command::Ui)) {
         console::attach();
     }
 
-    if let Err(error) = run() {
-        eprintln!("mochi: {error:#}");
+    if let Err(error) = run(cli) {
+        report(&error);
         std::process::exit(1);
     }
 }
 
-fn run() -> Result<()> {
-    let cli = Cli::parse();
+/// Say why, somewhere it will be read.
+fn report(error: &anyhow::Error) {
+    let text = format!("mochi: {error:#}");
+
+    // Windows: a double-clicked GUI-subsystem process has no console, so
+    // `eprintln!` writes to an invalid handle and the user is left with a
+    // program that started and did nothing visible at all. The window's own
+    // failures — no usable GPU adapter, an index that cannot be opened —
+    // happen before there is a window to say so in, so they are said here.
+    #[cfg(windows)]
+    if !console::can_print() && !console::borrow_parent() {
+        console::message(&text);
+        return;
+    }
+
+    eprintln!("{text}");
+}
+
+fn run(cli: Cli) -> Result<()> {
     match &cli.command {
         None | Some(Command::Ui) => ui(&cli.global),
         Some(Command::Doctor) => doctor(&cli.global),
@@ -218,34 +251,116 @@ fn ui(global: &GlobalArgs) -> Result<()> {
     .map_err(|error| anyhow::anyhow!(error))
 }
 
-/// Print into the console that started us.
+/// Print into the console that started us, and say things where a double-click
+/// can read them.
 ///
 /// Windows gives a GUI program no console of its own, so without this a
 /// subcommand would run and say nothing. Written out rather than taken from a
-/// crate: it is one call, and the alternative is a dependency in the shipped
-/// binary for three lines of FFI.
+/// crate: it is a handful of calls, and the alternative is a dependency in the
+/// shipped binary for a few lines of FFI.
 #[cfg(windows)]
 mod console {
     /// `ATTACH_PARENT_PROCESS`: the console of whatever started this process.
     const PARENT: u32 = u32::MAX;
+    const STD_OUTPUT: u32 = -11i32 as u32;
+    const STD_ERROR: u32 = -12i32 as u32;
+    const INVALID_HANDLE: isize = -1;
+    /// `MB_OK | MB_ICONERROR`.
+    const ERROR_BOX: u32 = 0x10;
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
         fn AttachConsole(process_id: u32) -> i32;
         fn AllocConsole() -> i32;
+        fn GetConsoleWindow() -> isize;
+        fn GetStdHandle(which: u32) -> isize;
+        fn SetStdHandle(which: u32, handle: isize) -> i32;
     }
 
+    #[link(name = "user32")]
+    unsafe extern "system" {
+        fn MessageBoxW(owner: isize, text: *const u16, caption: *const u16, style: u32) -> i32;
+    }
+
+    /// Is there anywhere for a message to go as it stands — a console, or a
+    /// file or pipe somebody redirected the output to?
+    ///
+    /// `false` means printing would write to an invalid handle and be lost,
+    /// which for a double-clicked window is the difference between a reason and
+    /// a program that did nothing.
+    pub fn can_print() -> bool {
+        // SAFETY: takes no arguments and returns a window handle or nothing.
+        let console = unsafe { GetConsoleWindow() != 0 };
+        console || handle_set(STD_ERROR)
+    }
+
+    /// Borrow the console of whatever started this process. `false` when there
+    /// was none: a double-click, a shortcut, a scheduler.
+    pub fn borrow_parent() -> bool {
+        keeping_std_handles(|| unsafe { AttachConsole(PARENT) != 0 })
+    }
+
+    /// Somewhere to print: the console that started us, or one of our own.
     pub fn attach() {
-        // SAFETY: both take no pointers and return a boolean. Failure means
-        // there was no console to attach to, which is why the fallback exists.
-        unsafe {
-            if AttachConsole(PARENT) == 0 {
-                // Started from somewhere with no console at all — Explorer,
-                // a shortcut, a scheduler. Make one rather than losing the
-                // output entirely.
-                AllocConsole();
-            }
+        if borrow_parent() || handle_set(STD_OUTPUT) {
+            // Already going somewhere. A file or a pipe is somewhere, and a
+            // console of our own on top of one would be an empty box.
+            return;
         }
+        keeping_std_handles(|| unsafe { AllocConsole() != 0 });
+    }
+
+    /// Is one of the standard handles pointing at anything?
+    ///
+    /// Windows leaves these empty for a process started from Explorer with
+    /// nothing redirected, which is what tells a double-click apart from a
+    /// `mochi export > index.json`.
+    fn handle_set(which: u32) -> bool {
+        // SAFETY: takes an identifier and returns a handle or nothing.
+        let handle = unsafe { GetStdHandle(which) };
+        handle != 0 && handle != INVALID_HANDLE
+    }
+
+    /// Attach a console without letting it take the output away.
+    ///
+    /// `mochi export > index.json` reaches this holding a file handle for its
+    /// standard output. Attaching a console can point `STD_OUTPUT_HANDLE` at
+    /// the console screen buffer instead — which would print the JSON to the
+    /// terminal and leave the file empty — so whatever was there before is put
+    /// back afterwards. In the ordinary case the handles are the console's own
+    /// and restoring them changes nothing.
+    fn keeping_std_handles(attach: impl FnOnce() -> bool) -> bool {
+        // SAFETY: none of these take pointers; each returns a handle or a
+        // boolean. `SetStdHandle` is given back a handle this process was
+        // holding a moment earlier.
+        unsafe {
+            let saved = [
+                (STD_OUTPUT, GetStdHandle(STD_OUTPUT)),
+                (STD_ERROR, GetStdHandle(STD_ERROR)),
+            ];
+            let attached = attach();
+            for (which, handle) in saved {
+                if handle != 0 && handle != INVALID_HANDLE {
+                    SetStdHandle(which, handle);
+                }
+            }
+            attached
+        }
+    }
+
+    /// Say something where a double-click can read it.
+    pub fn message(text: &str) {
+        let text = wide(text);
+        let caption = wide("Mochi");
+        // SAFETY: both strings are NUL-terminated and outlive the call, which
+        // blocks until the box is dismissed.
+        unsafe {
+            MessageBoxW(0, text.as_ptr(), caption.as_ptr(), ERROR_BOX);
+        }
+    }
+
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(std::iter::once(0)).collect()
     }
 }
 

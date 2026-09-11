@@ -37,6 +37,11 @@ use mochi_core::config::Platform;
 /// checks the fallback path without uninstalling their fonts.
 pub const OVERRIDE_ENV: &str = "MOCHI_FONT";
 
+/// Which face of a collection is installed. `.ttc` files hold several — every
+/// Windows and macOS candidate here is one — and egui reads the first unless
+/// told otherwise, which is what [`egui::FontData::from_owned`] leaves it at.
+const FACE_INDEX: u32 = 0;
+
 /// Faces to try, best first.
 ///
 /// Each platform's list starts with the face that platform's own applications
@@ -88,12 +93,27 @@ fn find() -> Option<(PathBuf, Vec<u8>)> {
         // by something that is not a font. Every one of those is a reason to
         // try the next candidate, not to fail.
         if let Ok(bytes) = std::fs::read(&path) {
-            if !bytes.is_empty() {
+            if !bytes.is_empty() && parses(&bytes) {
                 return Some((path, bytes));
             }
         }
     }
     None
+}
+
+/// Would the window's own text engine read this as a font?
+///
+/// It has to be asked here, because epaint does not return an error for a face
+/// it cannot parse — it panics, on the first frame, after the face has been
+/// installed. So a corrupt system font or a `MOCHI_FONT` pointing at something
+/// that is not a font would take the window down instead of falling through to
+/// the next candidate.
+///
+/// Asked with the same parser and the same face index that epaint will use, so
+/// that the answer is about what epaint will do rather than about fonts in
+/// general.
+fn parses(bytes: &[u8]) -> bool {
+    skrifa::FontRef::from_index(bytes, FACE_INDEX).is_ok()
 }
 
 /// Add the system face to both families, as a fallback.

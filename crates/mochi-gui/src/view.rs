@@ -24,6 +24,7 @@
 //! masking belongs where the files are read (NFR-3.3). A `Snapshot` is
 //! therefore exactly as safe to show as its `masked` flag says.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use mochi_core::index::{IndexStats, SessionRecord};
@@ -142,6 +143,35 @@ pub struct MessageView {
     pub tool_name: Option<String>,
     pub timestamp: Option<i64>,
     pub raw: Option<String>,
+    /// How many characters `content` has, and `raw` after it.
+    ///
+    /// Counted here, once, because the transcript cuts long entries and says
+    /// how much it cut: counting from the string itself would walk every byte
+    /// of a megabyte-long tool result on every repaint, for every entry on
+    /// screen. [`message_view`] is what keeps these honest.
+    pub content_chars: usize,
+    pub raw_chars: usize,
+}
+
+/// Build a transcript entry from its already-masked text.
+pub fn message_view(
+    seq: i64,
+    role: Role,
+    content: String,
+    tool_name: Option<String>,
+    timestamp: Option<i64>,
+    raw: Option<String>,
+) -> MessageView {
+    MessageView {
+        content_chars: content.chars().count(),
+        raw_chars: raw.as_deref().map(|raw| raw.chars().count()).unwrap_or(0),
+        seq,
+        role,
+        content,
+        tool_name,
+        timestamp,
+        raw,
+    }
 }
 
 /// A full-text match, for the search results pane.
@@ -179,22 +209,23 @@ pub struct Group {
 /// noise, so they go.
 pub fn groups(snapshot: &Snapshot, filter: &str) -> Vec<Group> {
     let needle = filter.trim().to_lowercase();
-    let mut by_repo: Vec<(i64, Vec<usize>)> = snapshot
-        .repositories
-        .iter()
-        .map(|repo| (repo.id, Vec::new()))
-        .collect();
+    // Where each repository's sessions collect. Looked up by id rather than
+    // searched for: the index NFR-1 is written for has ten thousand sessions
+    // across hundreds of repositories, and a scan per session would make
+    // grouping cost the product of the two.
+    let mut slots: HashMap<i64, usize> = HashMap::with_capacity(snapshot.repositories.len());
+    for (slot, repo) in snapshot.repositories.iter().enumerate() {
+        slots.entry(repo.id).or_insert(slot);
+    }
+    let mut by_repo: Vec<Vec<usize>> = vec![Vec::new(); snapshot.repositories.len()];
     let mut loose: Vec<usize> = Vec::new();
 
     for (index, session) in snapshot.sessions.iter().enumerate() {
         if !matches(session, &needle) {
             continue;
         }
-        match session
-            .repo_id
-            .and_then(|id| by_repo.iter_mut().find(|(repo_id, _)| *repo_id == id))
-        {
-            Some((_, list)) => list.push(index),
+        match session.repo_id.and_then(|id| slots.get(&id)) {
+            Some(slot) => by_repo[*slot].push(index),
             // A session pointing at a repository the index no longer lists is
             // still readable, so it goes with the rest of the homeless.
             None => loose.push(index),
@@ -202,7 +233,7 @@ pub fn groups(snapshot: &Snapshot, filter: &str) -> Vec<Group> {
     }
 
     let mut groups = Vec::new();
-    for (repo, (_, sessions)) in snapshot.repositories.iter().zip(by_repo) {
+    for (repo, sessions) in snapshot.repositories.iter().zip(by_repo) {
         if sessions.is_empty() && !needle.is_empty() {
             continue;
         }

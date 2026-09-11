@@ -36,7 +36,7 @@ use mochi_core::mask::Masker;
 use mochi_core::repo::GitCli;
 use mochi_core::scan::{ScanOptions, Scanner};
 
-use crate::view::{session_view, HitView, MessageView, RepoView, Snapshot};
+use crate::view::{message_view, session_view, HitView, MessageView, RepoView, Snapshot};
 
 /// What the window asks for.
 #[derive(Debug, Clone)]
@@ -71,7 +71,25 @@ pub enum Response {
         text: String,
         hits: Vec<HitView>,
     },
-    Failed(String),
+    /// A request could not be answered. `about` says which one, because where
+    /// the reason belongs on screen depends on it: a transcript that cannot be
+    /// read is an answer about that session and belongs in the pane that was
+    /// going to show it, not in the status bar the whole window shares.
+    Failed {
+        about: About,
+        message: String,
+    },
+}
+
+/// What a [`Response::Failed`] was about.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum About {
+    /// Opening, reading or scanning the index: the window as a whole.
+    Index,
+    /// One session's transcript.
+    Transcript(i64),
+    /// A search.
+    Search,
 }
 
 /// A handle to the index thread.
@@ -80,9 +98,34 @@ pub struct Worker {
     responses: Receiver<Response>,
 }
 
+/// The way back to the window: a sender that wakes it.
+///
+/// An idle window does not repaint on its own, so a message sent without a
+/// wake is a message nobody sees until the mouse moves — which for a progress
+/// message means the status bar describing the wrong thing for as long as the
+/// work takes. Wrapping the sender is what makes that impossible to forget:
+/// there is no way to send without waking.
+struct Outbox {
+    sender: Sender<Response>,
+    wake: Box<dyn Fn() + Send>,
+}
+
+impl Outbox {
+    /// Send one answer. `false` means the window is gone, which is how the
+    /// thread is asked to stop.
+    fn send(&self, response: Response) -> bool {
+        if self.sender.send(response).is_err() {
+            return false;
+        }
+        (self.wake)();
+        true
+    }
+}
+
 impl Worker {
-    /// Start the thread. `wake` is called whenever an answer is ready, so that
-    /// a window sitting idle repaints instead of waiting for a mouse move.
+    /// Start the thread. `wake` is called for every answer sent — progress
+    /// included — so that a window sitting idle repaints instead of waiting
+    /// for a mouse move.
     pub fn spawn(
         index_path: Option<PathBuf>,
         home: Option<PathBuf>,
@@ -99,14 +142,15 @@ impl Worker {
                     home,
                     index: None,
                 };
+                let outbox = Outbox {
+                    sender: outbox,
+                    wake: Box::new(wake),
+                };
                 // Ends when the window drops its sender, which is how the
                 // thread is asked to stop.
                 while let Ok(request) = inbox.recv() {
-                    for response in state.handle(request, &outbox) {
-                        if outbox.send(response).is_err() {
-                            return;
-                        }
-                        wake();
+                    if !state.handle(request, &outbox) {
+                        return;
                     }
                 }
             })
@@ -150,39 +194,51 @@ struct State {
 }
 
 impl State {
-    fn handle(&mut self, request: Request, progress: &Sender<Response>) -> Vec<Response> {
+    /// Answer one request. `false` means the window has gone away.
+    fn handle(&mut self, request: Request, out: &Outbox) -> bool {
         match request {
             Request::Load { reveal_secrets } => {
-                let _ = progress.send(Response::Busy("Reading the index…"));
-                match self.load(reveal_secrets, false, progress) {
-                    Ok(responses) => responses,
-                    Err(error) => vec![Response::Failed(error)],
-                }
+                out.send(Response::Busy("Reading the index…"))
+                    && self.loading(reveal_secrets, false, out)
             }
             Request::Rescan { reveal_secrets } => {
-                let _ = progress.send(Response::Busy("Scanning your session stores…"));
-                match self.load(reveal_secrets, true, progress) {
-                    Ok(responses) => responses,
-                    Err(error) => vec![Response::Failed(error)],
-                }
+                out.send(Response::Busy("Scanning your session stores…"))
+                    && self.loading(reveal_secrets, true, out)
             }
             Request::Messages {
                 session_id,
                 reveal_secrets,
             } => match self.messages(session_id, reveal_secrets) {
-                Ok(messages) => vec![Response::Messages {
+                Ok(messages) => out.send(Response::Messages {
                     session_id,
                     messages,
-                }],
-                Err(error) => vec![Response::Failed(error)],
+                }),
+                Err(message) => out.send(Response::Failed {
+                    about: About::Transcript(session_id),
+                    message,
+                }),
             },
             Request::Search {
                 text,
                 reveal_secrets,
             } => match self.search(&text, reveal_secrets) {
-                Ok(hits) => vec![Response::Hits { text, hits }],
-                Err(error) => vec![Response::Failed(error)],
+                Ok(hits) => out.send(Response::Hits { text, hits }),
+                Err(message) => out.send(Response::Failed {
+                    about: About::Search,
+                    message,
+                }),
             },
+        }
+    }
+
+    /// [`State::load`], with the failure reported rather than returned.
+    fn loading(&mut self, reveal_secrets: bool, force_scan: bool, out: &Outbox) -> bool {
+        match self.load(reveal_secrets, force_scan, out) {
+            Ok(connected) => connected,
+            Err(message) => out.send(Response::Failed {
+                about: About::Index,
+                message,
+            }),
         }
     }
 
@@ -204,8 +260,8 @@ impl State {
         &mut self,
         reveal_secrets: bool,
         force_scan: bool,
-        progress: &Sender<Response>,
-    ) -> Result<Vec<Response>, String> {
+        out: &Outbox,
+    ) -> Result<bool, String> {
         let env = match &self.home {
             Some(home) => EnvSource::with_home(home),
             None => EnvSource::from_process(),
@@ -214,19 +270,22 @@ impl State {
         let index = self.index()?;
         let empty = index.stats().map_err(|e| e.to_string())?.sessions == 0;
 
-        let mut responses = Vec::new();
         if force_scan || empty {
             // A first run reads every session file on the machine, which can
             // take minutes. Saying "reading the index" for that long would be
             // a lie about what is happening.
-            let _ = progress.send(Response::Busy("Scanning your session stores…"));
+            if !out.send(Response::Busy("Scanning your session stores…")) {
+                return Ok(false);
+            }
             let report = Scanner::new(env, &GitCli, ScanOptions::default())
                 .run(index)
                 .map_err(|error| format!("scanning: {error}"))?;
-            responses.push(Response::Scanned(format!(
+            if !out.send(Response::Scanned(format!(
                 "{} session(s) found: {} read, {} unchanged, {} archived, {} unreadable",
                 report.discovered, report.parsed, report.unchanged, report.archived, report.failed
-            )));
+            ))) {
+                return Ok(false);
+            }
         }
 
         let index_path = self.index_path.clone();
@@ -272,14 +331,13 @@ impl State {
 
         let stats = index.stats().map_err(|error| error.to_string())?;
 
-        responses.push(Response::Loaded(Box::new(Snapshot {
+        Ok(out.send(Response::Loaded(Box::new(Snapshot {
             masked: !reveal_secrets,
             repositories,
             sessions,
             stats,
             index_path,
-        })));
-        Ok(responses)
+        }))))
     }
 
     fn messages(
@@ -301,13 +359,15 @@ impl State {
             .messages(session_id)
             .map_err(|error| error.to_string())?
             .into_iter()
-            .map(|message| MessageView {
-                seq: message.seq,
-                role: message.role,
-                content: mask(&message.content),
-                tool_name: message.tool_name,
-                timestamp: message.timestamp,
-                raw: message.raw.as_deref().map(mask),
+            .map(|message| {
+                message_view(
+                    message.seq,
+                    message.role,
+                    mask(&message.content),
+                    message.tool_name,
+                    message.timestamp,
+                    message.raw.as_deref().map(mask),
+                )
             })
             .collect())
     }
