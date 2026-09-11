@@ -1,11 +1,12 @@
 name: Release
 
-# Builds the unsigned portable binaries NFR-4b.7 asks for, so that people can
-# use Mochi before code signing is funded (R-7), and attaches them to a draft
-# release for a human to review and publish.
+# Builds the unsigned portable binary NFR-4b.7 asks for, so that people can use
+# Mochi before code signing is funded (R-7), and attaches it to a draft release
+# for a human to review and publish.
 #
-# Two things are built on each platform: the desktop application, and the
-# command line indexer for people who would rather not have a window.
+# One thing is built per platform, because there is only one thing: `mochi` is
+# the window and the command line indexer in a single executable. Run with no
+# arguments it opens the window; run with a subcommand it prints.
 #
 # Triggered by pushing a tag, or dispatched with one. The workflow file is read
 # from the ref it runs on, so the build always matches the code being released.
@@ -25,9 +26,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # The tag and the version in Cargo.toml must agree, or the installer reports
-  # something different from the release people downloaded. tauri.conf.json
-  # deliberately has no version field: it takes the crate's.
+  # The tag and the version in Cargo.toml must agree, or `mochi --version`
+  # reports something different from the release people downloaded.
   check-version:
     name: tag matches Cargo.toml
     runs-on: ubuntu-latest
@@ -48,10 +48,6 @@ jobs:
             echo "::error::tag $tag does not match the workspace version $version" >&2
             exit 1
           fi
-          if grep -q '"version"' crates/mochi-desktop/tauri.conf.json; then
-            echo "::error::tauri.conf.json has its own version field; it should take the crate's" >&2
-            exit 1
-          fi
           echo "releasing $tag from workspace version $version"
 
   windows:
@@ -61,40 +57,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
       - uses: Swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: npm ci
 
       # A release nobody tested is not a release.
       - name: Test
         run: cargo test --workspace --release --locked
 
-      # Builds the interface and wraps it, producing the installers.
-      - name: Build the application
-        run: npx tauri build --config crates/mochi-desktop/tauri.conf.json
-
-      - name: Build the command line indexer
+      - name: Build
         run: cargo build --release --locked -p mochi-cli
 
+      # One file. The licence notice travels inside it: `mochi licenses`.
       - name: Collect
         shell: pwsh
         run: |
           $version = "${{ needs.check-version.outputs.version }}"
-          New-Item -ItemType Directory -Path staging, dist | Out-Null
+          New-Item -ItemType Directory -Path dist | Out-Null
+          Copy-Item target/release/mochi.exe "dist/Mochi-$version-windows-x86_64.exe"
 
-          Get-ChildItem target/release/bundle/nsis/*-setup.exe |
-            ForEach-Object { Copy-Item $_ "dist/Mochi-$version-windows-x86_64-setup.exe" }
-          Get-ChildItem target/release/bundle/msi/*.msi |
-            ForEach-Object { Copy-Item $_ "dist/Mochi-$version-windows-x86_64.msi" }
-
-          Copy-Item target/release/mochi.exe staging/
-          Copy-Item LICENSE, NOTICE, README.md staging/
-          Compress-Archive -Path staging/* -DestinationPath "dist/mochi-cli-$version-windows-x86_64.zip"
+          # A GUI-subsystem process is not waited for by `&`, so ask properly.
+          # This is the only check that the file CI just built actually runs.
+          $built = Start-Process -FilePath "dist/Mochi-$version-windows-x86_64.exe" `
+            -ArgumentList "--version" -NoNewWindow -Wait -PassThru
+          if ($built.ExitCode -ne 0) {
+            throw "the built executable exited with $($built.ExitCode)"
+          }
           Get-ChildItem dist
 
       - uses: actions/upload-artifact@v4
@@ -111,24 +97,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
       - uses: Swatinem/rust-cache@v2
-
-      - name: Install dependencies
-        run: npm ci
 
       - name: Test
         run: cargo test --workspace --release --locked
 
-      # NFR-4.1 covers both Apple Silicon and Intel, so ship one build that
-      # runs on either rather than making people pick.
-      - name: Build the application
-        run: npx tauri build --config crates/mochi-desktop/tauri.conf.json --target universal-apple-darwin
-
-      - name: Build the command line indexer
+      # NFR-4.1 covers both Apple Silicon and Intel, so ship one file that runs
+      # on either rather than making people pick.
+      - name: Build
         run: |
           cargo build --release --locked -p mochi-cli --target aarch64-apple-darwin
           cargo build --release --locked -p mochi-cli --target x86_64-apple-darwin
@@ -137,38 +113,14 @@ jobs:
         run: |
           set -euo pipefail
           version="${{ needs.check-version.outputs.version }}"
-          mkdir -p dist staging
+          mkdir -p dist
 
-          cp target/universal-apple-darwin/release/bundle/dmg/*.dmg \
-            "dist/Mochi-$version-macos-universal.dmg"
-
-          lipo -create -output staging/mochi \
+          lipo -create -output "dist/Mochi-$version-macos-universal" \
             target/aarch64-apple-darwin/release/mochi \
             target/x86_64-apple-darwin/release/mochi
-          chmod +x staging/mochi
-          lipo -info staging/mochi
-
-          cp LICENSE NOTICE README.md staging/
-          cat > staging/INSTALL.txt <<'TXT'
-          Mochi command line indexer
-          ==========================
-
-          This build is not signed or notarised (see SECURITY.md and R-7 in
-          doc/requirements.md). macOS will refuse to run it until you clear the
-          quarantine flag it attaches to downloaded files:
-
-              xattr -d com.apple.quarantine ./mochi
-
-          Then put it somewhere on your PATH, for example:
-
-              sudo install -m 755 ./mochi /usr/local/bin/mochi
-              mochi doctor
-
-          Verify what you downloaded against SHA256SUMS.txt on the release page
-          before doing any of this.
-          TXT
-
-          tar -czf "dist/mochi-cli-$version-macos-universal.tar.gz" -C staging .
+          chmod +x "dist/Mochi-$version-macos-universal"
+          lipo -info "dist/Mochi-$version-macos-universal"
+          "dist/Mochi-$version-macos-universal" --version
           ls -la dist
 
       - uses: actions/upload-artifact@v4
@@ -212,9 +164,17 @@ jobs:
           and searchable. It works entirely offline: session files are never
           modified, and nothing is sent anywhere.
 
-          The window shows your repositories and their sessions on the left, the
-          transcript in the middle, and what each session is on the right.
-          Credentials that end up in session logs are masked.
+          **One file, nothing to install.** Download it, run it, and the window
+          opens: the repositories and their sessions on the left, the transcript
+          in the middle, what each session is on the right. The same file is the
+          command line tool — give it a subcommand (\`mochi sessions\`,
+          \`mochi search ECONNRESET\`) and it prints instead. There is no
+          installer, no web view and no runtime to install first; Mochi draws
+          its own window.
+
+          Credentials that end up in session logs are masked. Attribution for
+          everything Mochi is built from travels inside the file:
+          \`mochi licenses\`.
 
           ## What is not built yet
 
@@ -225,32 +185,35 @@ jobs:
             produced them.
           - OpenCode's newer SQLite storage is detected and reported, not read.
 
-          ## These builds are unsigned
+          ## Running it
 
-          Code signing and notarisation are not funded yet (R-7), so:
+          **Windows.** Double-click it. SmartScreen will warn, because nothing
+          here is signed (R-7): choose *More info* then *Run anyway*, or check
+          the file against \`SHA256SUMS.txt\` first.
 
-          - **Windows** will show a SmartScreen warning. Choose *More info* then
-            *Run anyway*, or check the file against \`SHA256SUMS.txt\` first.
-          - **macOS** will refuse to open the app because it is quarantined.
-            Either right-click the app and choose *Open*, or run:
-            \`xattr -dr com.apple.quarantine /Applications/Mochi.app\`
+          **macOS.** This is a Unix executable rather than an application
+          bundle, so Finder will not launch it by double-clicking. From a
+          terminal:
 
-          Building from source needs nothing but a Rust toolchain and Node; the
-          instructions are in the README.
+          \`\`\`sh
+          chmod +x Mochi-${VERSION}-macos-universal
+          xattr -d com.apple.quarantine Mochi-${VERSION}-macos-universal
+          ./Mochi-${VERSION}-macos-universal
+          \`\`\`
+
+          Put it on your \`PATH\` as \`mochi\` and it is the command line
+          tool as well.
 
           ## Files
 
           | File | For |
           | --- | --- |
-          | \`Mochi-${VERSION}-windows-x86_64-setup.exe\` | Windows, installer |
-          | \`Mochi-${VERSION}-windows-x86_64.msi\` | Windows, for deployment tooling |
-          | \`Mochi-${VERSION}-macos-universal.dmg\` | macOS, Apple Silicon and Intel |
-          | \`mochi-cli-${VERSION}-windows-x86_64.zip\` | the command line indexer, Windows |
-          | \`mochi-cli-${VERSION}-macos-universal.tar.gz\` | the command line indexer, macOS |
-          | \`SHA256SUMS.txt\` | checksums for all of the above |
+          | \`Mochi-${VERSION}-windows-x86_64.exe\` | Windows 10/11, x86-64 |
+          | \`Mochi-${VERSION}-macos-universal\` | macOS, Apple Silicon and Intel |
+          | \`SHA256SUMS.txt\` | checksums for both |
 
           Linux is not a supported target (Q-6) and no Linux build is attached;
-          \`cargo build --release\` works there.
+          \`cargo build --release -p mochi-cli\` works there.
           TXT
 
       - name: Create or update the draft release

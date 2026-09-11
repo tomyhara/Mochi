@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The document the interface reads (`mochi export`, and the desktop shell's
-//! `load_index`).
+//! The document `mochi export` writes.
 //!
-//! This lives in the core rather than in either front end because both produce
-//! it, and two implementations of one contract drift. `ui/src/types.ts` is the
-//! other half of it.
+//! A masked, self-contained JSON copy of the whole index, for attaching to a
+//! bug report, diffing two machines, or feeding something that is not Mochi
+//! (FR-8.5). The window does not read it — it reads the index directly, one
+//! session at a time — so this is a format for other people's tools, and its
+//! shape is a promise to them.
 //!
 //! Field names are camelCase and written out by hand rather than derived from
 //! the internal types: the interface should not have to change every time a
@@ -142,29 +143,34 @@ pub fn document(index: &Index, options: ExportOptions) -> Result<Value> {
 /// Whether a session can be resumed, and the command if it can.
 ///
 /// The reasons matter as much as the command: FR-7.6 and FR-2.11 both end with
-/// a session the user can still read but cannot restart, and the interface has
-/// to say which it is rather than showing a button that fails.
-pub fn resume(session: &SessionRecord, style: QuoteStyle) -> Value {
-    let unavailable =
-        |reason: &str| json!({ "available": false, "command": null, "reason": reason });
-
+/// a session the user can still read but cannot restart, and a front end has
+/// to say which it is rather than showing a button that fails. The reason is
+/// therefore the error, not an absence.
+pub fn resume_command(
+    session: &SessionRecord,
+    style: QuoteStyle,
+) -> std::result::Result<String, String> {
     if session.parse_status == ParseStatus::Archived {
-        return unavailable("the original transcript is gone, so there is nothing to resume");
+        return Err("the original transcript is gone, so there is nothing to resume".to_string());
     }
     let Some(cwd) = session.cwd.as_deref() else {
-        return unavailable("this session recorded no working directory");
+        return Err("this session recorded no working directory".to_string());
     };
     if !session.cwd_exists {
-        return unavailable("the working directory no longer exists");
+        return Err("the working directory no longer exists".to_string());
     }
 
     let target = ResumeTarget::new(&session.native_id, std::path::PathBuf::from(cwd));
-    match adapter::for_tool(session.tool).resume_command(&target) {
-        Ok(spec) => json!({
-            "available": true,
-            "command": spec.to_display_string(style),
-            "reason": null,
-        }),
-        Err(error) => unavailable(&error.to_string()),
+    adapter::for_tool(session.tool)
+        .resume_command(&target)
+        .map(|spec| spec.to_display_string(style))
+        .map_err(|error| error.to_string())
+}
+
+/// The same answer as [`resume_command`], in the shape the document uses.
+pub fn resume(session: &SessionRecord, style: QuoteStyle) -> Value {
+    match resume_command(session, style) {
+        Ok(command) => json!({ "available": true, "command": command, "reason": null }),
+        Err(reason) => json!({ "available": false, "command": null, "reason": reason }),
     }
 }

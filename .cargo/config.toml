@@ -1,0 +1,11 @@
+# Windows: link the C runtime into the executable.
+#
+# Without this the .exe needs the Visual C++ redistributable, which is present
+# on most machines and absent on exactly the clean ones — and "download this
+# other thing first" is the opposite of what a single portable file is for.
+# The `cc` crate reads this too, so the bundled SQLite is built /MT to match.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

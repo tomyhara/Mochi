@@ -3,22 +3,16 @@
 # NFR-4b.2: Apache-2.0 is incompatible with GPLv2 and can only be absorbed into
 # GPLv3 one way, so no GPL-family dependency may enter the graph.
 #
-# MPL-2.0 is allowed, which is a deliberate narrowing of that rule rather than
-# an exception to it. The rule exists because of GPL compatibility, and MPL
-# does not raise it: it is file-level copyleft, its section 3.3 explicitly
-# permits combining with other licences in a Larger Work, and it puts no
-# obligation on our own source as long as we use the crates unmodified. Should
-# Mochi ever need to *change* one of them, that changed file goes back under
-# MPL and this comment stops being enough.
 # NFR-3.9: advisories are checked in the same CI job.
 
 [graph]
 all-features = true
 # Only the platforms Mochi ships to. Without this, cargo-deny reports every
-# platform's dependencies at once: Tauri pulls reqwest in for Android and iOS,
-# which Mochi does not build for, and the ban below would fire on a crate that
-# never reaches a user. scripts/check-no-network-deps.sh screens the same
-# targets from the other direction.
+# platform's dependencies at once, including the ones a windowing or graphics
+# crate carries for platforms Mochi does not build for, and the bans below
+# would fire on code that never reaches a user.
+# scripts/check-no-network-deps.sh screens the same targets from the other
+# direction.
 targets = [
   { triple = "x86_64-pc-windows-msvc" },
   { triple = "aarch64-pc-windows-msvc" },
@@ -43,10 +37,16 @@ allow = [
   # An Apache-2.0 grant plus an extra permission, so strictly more permissive
   # than the plain Apache-2.0 already on this list.
   "Apache-2.0 WITH LLVM-exception",
-  # Reached through Tauri: option-ext (via dirs) at runtime, and cssparser,
-  # selectors and dtoa-short through a proc-macro at build time. All used
-  # unmodified. See the note above, and NOTICE for the attribution MPL asks for.
-  "MPL-2.0",
+  # The Boost licence: permissive, and unusually explicit that binary
+  # distribution carries no attribution requirement at all. Reached through
+  # clipboard-win, which is how the window copies a resume command on Windows.
+  "BSL-1.0",
+  # Fonts, not code: `epaint_default_fonts` carries the faces egui draws with
+  # (Ubuntu Light under the Ubuntu font licence, Hack and Noto Emoji under the
+  # SIL Open Font Licence). Both are permissive and both ask to be named, which
+  # NOTICE does. Neither reaches Mochi's own source.
+  "OFL-1.1",
+  "Ubuntu-font-1.0",
 ]
 confidence-threshold = 0.9
 
@@ -72,11 +72,10 @@ yanked = "deny"
 # NFR-3.9 asks for a vulnerability scan, and vulnerabilities stay denied.
 #
 # "Unmaintained" is a different thing: it is a note about a project's future,
-# not a defect, and a transitive one is not ours to fix. Tauri reaches the
-# unic-* crates through urlpattern, and the advisory itself says there is no
-# safe upgrade — so denying it here would only mean a permanently red build
-# that teaches everyone to ignore the job. Scoped to dependencies this
-# workspace declares directly, where the report is something we can act on.
+# not a defect, and a transitive one is not ours to fix — a window sits on a
+# wide graph of platform bindings, and a permanently red build only teaches
+# everyone to ignore the job. Scoped to dependencies this workspace declares
+# directly, where the report is something we can act on.
 unmaintained = "workspace"
 
 [sources]

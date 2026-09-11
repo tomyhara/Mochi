@@ -35,15 +35,9 @@ jobs:
         with:
           key: ${{ matrix.os }}
 
-      # mochi-desktop is a workspace member now, so building the workspace on
-      # Linux needs the webview it links against. Windows and macOS use the
-      # system one and need nothing.
-      - name: Install Linux webview headers
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-
+      # Nothing to install for the window: it draws its own widgets and
+      # reaches the GPU through wgpu, which links against what the platform
+      # already has. That is the whole point of the single-file build.
       - name: Build
         run: cargo build --workspace --all-targets --locked
 
@@ -63,15 +57,6 @@ jobs:
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
-
-      # mochi-desktop is a workspace member now, so building the workspace on
-      # Linux needs the webview it links against. Windows and macOS use the
-      # system one and need nothing.
-      - name: Install Linux webview headers
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
 
       - name: rustfmt
         run: cargo fmt --all -- --check
@@ -106,11 +91,12 @@ jobs:
         with:
           command: check bans licenses sources advisories
 
-  # Two suites: the interface itself, and the design mocks it is built against.
-  # The mocks are a generated bundle, so a regeneration that drops an agreed
-  # correction is exactly the kind of thing nobody notices by hand.
+  # The design mock the window is built against. It is a generated bundle, so
+  # a regeneration that drops an agreed correction is exactly the kind of thing
+  # nobody notices by hand. The window itself is tested in Rust, in the job
+  # above.
   ui:
-    name: interface tests
+    name: design mock tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -127,9 +113,6 @@ jobs:
       - name: Check npm licences
         run: ./scripts/check-npm-licenses.sh
 
-      - name: Typecheck
-        run: npm run typecheck
-
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
 
@@ -143,27 +126,6 @@ jobs:
           path: playwright-report/
           retention-days: 7
           if-no-files-found: ignore
-
-  # The interface renders whatever `mochi export` produces. Regenerating the
-  # fixture here proves the two still agree — otherwise the interface can drift
-  # into rendering a contract the core no longer implements.
-  ui-fixture:
-    name: interface fixture is current
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-
-      - name: Regenerate
-        run: ./scripts/build-ui-fixture.sh
-
-      - name: It should not have changed
-        run: |
-          if ! git diff --exit-code -- ui/src/fixtures/index.json; then
-            echo "::error::ui/src/fixtures/index.json is stale — run ./scripts/build-ui-fixture.sh and commit it" >&2
-            exit 1
-          fi
 
   # NFR-3.1 / NFR-4b.8: Mochi must not contain code that talks to the network.
   # Resolves the graph per shipped target, so it needs cargo.

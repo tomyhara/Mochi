@@ -1,22 +1,14 @@
 {
   "name": "mochi",
   "private": true,
-  "description": "Mochi desktop interface and its browser tests",
+  "description": "Browser tests for Mochi's design mock",
   "license": "Apache-2.0",
-  "workspaces": [
-    "ui"
-  ],
   "scripts": {
-    "dev": "npm run dev --workspace ui",
-    "build": "npm run build --workspace ui",
-    "preview": "npm run preview --workspace ui",
-    "typecheck": "npm run typecheck --workspace ui",
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "report": "playwright show-report"
   },
   "devDependencies": {
-    "@playwright/test": "1.56.1",
-    "@tauri-apps/cli": "^2.11.4"
+    "@playwright/test": "1.56.1"
   }
 }

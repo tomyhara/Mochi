@@ -12,29 +12,35 @@ Third-party components
 
 Mochi links against third-party Rust crates at build time. Every dependency is
 required by CI (see deny.toml) to be distributed under a permissive licence:
-Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0 or
-Unlicense. Copyleft licences (GPL / LGPL / AGPL / MPL) are rejected.
+Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, BSL-1.0, Unicode-3.0,
+CC0-1.0 or Unlicense. Copyleft licences (GPL / LGPL / AGPL / MPL) are rejected.
 
 The bundled SQLite amalgamation reached through `libsqlite3-sys` is in the
 public domain (https://www.sqlite.org/copyright.html).
 
 --------------------------------------------------------------------------------
-Mozilla Public License 2.0 components
+Fonts
 --------------------------------------------------------------------------------
 
-The desktop application reaches these crates through Tauri and uses them
-unmodified. MPL-2.0 asks that recipients be told where to obtain their source;
-each is published on crates.io under the name and version recorded in
-Cargo.lock, and their repositories are linked from there.
+The window draws text with the faces `egui` bundles, reached through the
+`epaint_default_fonts` crate and carried inside the Mochi executable. They are
+not Mochi's work and both licences ask that they be named:
 
-  option-ext    (via dirs)        https://crates.io/crates/option-ext
-  cssparser     (build time only) https://crates.io/crates/cssparser
-  cssparser-macros                https://crates.io/crates/cssparser-macros
-  selectors                       https://crates.io/crates/selectors
-  dtoa-short                      https://crates.io/crates/dtoa-short
+  Ubuntu Light            Ubuntu Font Licence 1.0
+                          https://ubuntu.com/legal/font-licence
+  Hack                    SIL Open Font Licence 1.1 (and a Bitstream Vera
+                          derivative notice)
+                          https://github.com/source-foundry/Hack
+  Noto Emoji, emoji-icon  SIL Open Font Licence 1.1
+                          https://github.com/googlefonts/noto-emoji
 
-Should Mochi ever modify one of these, the modified files remain under MPL-2.0
-and must be published as such.
+Neither licence restricts Mochi's own licence, and neither font is modified.
+
+For text those faces do not cover — Japanese, Chinese and Korean — Mochi reads
+a font the operating system already has (Yu Gothic, Meiryo, Hiragino, Noto CJK
+and so on, see `crates/mochi-gui/src/fonts.rs`). Nothing of that font is copied
+into the executable or redistributed: it is read at startup from the machine it
+is already installed on.
 
 A machine-generated inventory of the exact dependency versions and their
 licences is produced by `cargo deny list` and is published with each release.

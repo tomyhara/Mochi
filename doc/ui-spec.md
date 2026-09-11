@@ -664,10 +664,10 @@ OFF の間は、一覧・詳細のどこにも削除の導線を出さない。
   See NOTICE for attributions.                          [ View ]
 
   THIRD-PARTY LICENSES                                  [ View all ]
-    tauri              Apache-2.0 OR MIT
+    eframe / egui      MIT OR Apache-2.0
     rusqlite           MIT
-    xterm.js           MIT
-    …                                                   412 packages
+    wgpu               MIT OR Apache-2.0
+    …                                                   250 packages
 
   Source code                     github.com/<owner>/mochi
   Report a security issue         SECURITY.md

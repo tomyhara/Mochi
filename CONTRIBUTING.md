@@ -20,6 +20,7 @@ without it — `scripts/check-license-headers.sh` tells you which ones.
 | Rust | see `rust-toolchain.toml` | `rustup` picks this up automatically |
 | A C toolchain | any | needed to build the bundled SQLite |
 | Git | 2.30+ | used to resolve repository identity at runtime |
+| Node | 22 | only for the design-mock browser tests, never for the product |
 
 No network access is needed at runtime, and none should ever be added
 (NFR-3.1, NFR-4b.8).
@@ -44,64 +45,71 @@ cargo test --workspace
 `cargo deny check` (licence and advisory policy, NFR-4b.2 / NFR-3.9) needs
 `cargo install cargo-deny`; CI installs it for you, so it is optional locally.
 
-## The desktop application
+## The window
 
 ```sh
-npm ci
-npx tauri dev   --config crates/mochi-desktop/tauri.conf.json   # window + hot reload
-npx tauri build --config crates/mochi-desktop/tauri.conf.json   # installers
+cargo run -p mochi-cli                 # opens the window
+cargo run -p mochi-cli -- doctor       # the same binary, as the command line tool
 ```
 
-On Linux you need the webview headers first:
+`mochi` is one executable: no subcommand opens the window, a subcommand prints.
+That is the whole distribution story — there is nothing to install beside it,
+no web view and no runtime (NFR-4b.7). Nothing extra is needed to build it on
+any platform; `eframe` draws the widgets and reaches the GPU through `wgpu`
+(Direct3D 12 on Windows, Metal on macOS, Vulkan or GL on Linux).
 
-```sh
-sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-```
+`crates/mochi-gui` is deliberately thin, and is arranged so that most of it can
+be tested without a screen:
 
-`crates/mochi-desktop` is deliberately thin: it opens the index, hands the
-window the same document `mochi export` produces, and gets out of the way.
+| File | What it is |
+| --- | --- |
+| `worker.rs` | the only thing that touches the index or the filesystem, on its own thread |
+| `view.rs` | what the window draws, as plain data — grouping, filtering, resume state |
+| `app.rs` | the panels: layout 1b, and nothing that decides anything |
+| `theme.rs` | the palette, carried over from the web interface unchanged |
+| `fonts.rs` | borrowing a CJK face from the operating system (NFR-6.4) |
+
 Anything that decides something belongs in `mochi-core`.
 
-Note that `cargo build -p mochi-desktop` produces a binary that looks for the
-dev server — Tauri picks `devUrl` over the bundled interface unless the build
-goes through its own CLI. Use `npx tauri build` when you want the real thing.
-
-The application version comes from the workspace `Cargo.toml`;
-`tauri.conf.json` deliberately has no `version` field so the installer and
-`mochi --version` cannot disagree. CI enforces that.
-
-## The interface
+The global flags work on the window too, which is how you look at something
+other than your own sessions:
 
 ```sh
-npm ci
-npm run dev          # http://localhost:5173, fixture data, no shell needed
-npm run typecheck
+cargo run -p mochi-cli -- ui --db /tmp/scratch.sqlite3 \
+  --home crates/mochi-core/tests/golden/claude_code/home
 ```
 
-`ui/` is React and TypeScript, no framework beyond that. It reads through
-`DataSource` (`ui/src/data/`): the fixture implementation in development and in
-tests, and a desktop implementation that will call the Rust core once there is a
-shell to call it from. Which shell — Tauri or Electron — is R-10, decided by the
-milestone-0 terminal spike; writing the interface against that one interface is
-what keeps the answer from mattering here.
+`MOCHI_FONT=/path/to/font.ttc` overrides the face the window borrows for
+Japanese, Chinese and Korean text — useful for checking the fallback without
+uninstalling anything.
 
-The fixture is not hand-written. `./scripts/build-ui-fixture.sh` runs the real
-scanner over the golden session files and exports the result, so the interface
-is always rendering a shape the core actually produces. CI regenerates it and
-fails if the committed copy has drifted. If you change what `mochi export`
-emits, regenerate and commit in the same change.
+## Testing the window
+
+The interface is tested in Rust, with no screen involved:
+
+```sh
+cargo test -p mochi-gui
+```
+
+- `tests/window.rs` runs the real window headless — egui lays out and paints
+  into a buffer, and only the last step needs a screen — against a real index,
+  and reads the text that was painted. This is where the promise that a masked
+  index never *draws* a credential is checked.
+- `tests/worker.rs` drives the index thread over its channels.
+- `tests/view.rs`, `tests/format.rs` cover the decisions the panels make.
+- `tests/theme.rs` measures every colour pair against WCAG AA (NFR-6.2). The
+  browser used to measure this on a rendered page; a native window has no such
+  page, so the check moved to where the colours are decided.
+
+If you add a panel, add the text it draws to `tests/window.rs`. A window that
+is never run is a window that is never tested.
 
 ## Browser tests
 
-Three suites, all Chromium:
-
-- `e2e/ui.spec.ts` drives the interface itself.
-- `e2e/ui-contrast.spec.ts` measures every rendered string against WCAG AA in
-  both themes (NFR-6.2).
-- `e2e/ui-mocks.spec.ts` opens the design mock in `doc/`. It is a generated
-  bundle and FR-9.1 makes `1b` the reference the implementation is built
-  against, so regenerating it and losing an agreed correction fails the build
-  instead of passing quietly.
+One suite, Chromium, and it has nothing to do with the interface: it opens the
+design mock in `doc/`. The mock is a generated bundle and FR-9.1 makes `1b` the
+reference the implementation is built against, so regenerating it and losing an
+agreed correction fails the build instead of passing quietly.
 
 ```sh
 npm ci
@@ -123,12 +131,9 @@ screen are what the specification actually decided. When you change a mock,
 expect to change the matching assertion in the same commit — that is the point
 of it.
 
-This is also where the application's own end-to-end tests will live once there
-is a window to open.
-
 ## Trying the indexer
 
-`mochi-cli` is the milestone-1 deliverable: an indexer you can drive from a
+The other half of the same executable: an indexer you can drive from a
 terminal.
 
 ```sh
@@ -138,6 +143,7 @@ cargo run -p mochi-cli -- repos               # repositories, grouped
 cargo run -p mochi-cli -- sessions --limit 20
 cargo run -p mochi-cli -- search ECONNRESET
 cargo run -p mochi-cli -- resume <session-id> # prints the command, never runs it
+cargo run -p mochi-cli -- licenses            # attribution, carried inside the binary
 ```
 
 Use `--db <path>` to keep experiments out of your real index, and
