@@ -1073,10 +1073,16 @@ fn entry(
     raw: bool,
     expanded: bool,
 ) -> Option<bool> {
-    let body = if raw {
-        message.raw.as_deref().unwrap_or_default()
+    // The character count travels with the entry rather than being worked out
+    // here: this runs for every entry on screen on every repaint, and a tool
+    // result can be a megabyte long.
+    let (body, count) = if raw {
+        (
+            message.raw.as_deref().unwrap_or_default(),
+            message.raw_chars,
+        )
     } else {
-        message.content.as_str()
+        (message.content.as_str(), message.content_chars)
     };
     let mut toggled = None;
 
@@ -1103,12 +1109,19 @@ fn entry(
         ui.add_space(12.0);
 
         ui.vertical(|ui| {
-            let count = body.chars().count();
             let cut = !expanded && count > ENTRY_CHARS;
-            let text: String = if cut {
-                body.chars().take(ENTRY_CHARS).collect()
+            // Where to cut costs the length of the cut, not the length of the
+            // entry: `chars().take(…).collect()` walks the same distance but
+            // builds the string a character at a time.
+            let text: &str = if cut {
+                let end = body
+                    .char_indices()
+                    .nth(ENTRY_CHARS)
+                    .map(|(at, _)| at)
+                    .unwrap_or(body.len());
+                &body[..end]
             } else {
-                body.to_string()
+                body
             };
 
             let monospace = raw || matches!(message.role, Role::ToolCall | Role::ToolResult);

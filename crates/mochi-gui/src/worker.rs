@@ -36,7 +36,7 @@ use mochi_core::mask::Masker;
 use mochi_core::repo::GitCli;
 use mochi_core::scan::{ScanOptions, Scanner};
 
-use crate::view::{session_view, HitView, MessageView, RepoView, Snapshot};
+use crate::view::{message_view, session_view, HitView, MessageView, RepoView, Snapshot};
 
 /// What the window asks for.
 #[derive(Debug, Clone)]
@@ -359,13 +359,15 @@ impl State {
             .messages(session_id)
             .map_err(|error| error.to_string())?
             .into_iter()
-            .map(|message| MessageView {
-                seq: message.seq,
-                role: message.role,
-                content: mask(&message.content),
-                tool_name: message.tool_name,
-                timestamp: message.timestamp,
-                raw: message.raw.as_deref().map(mask),
+            .map(|message| {
+                message_view(
+                    message.seq,
+                    message.role,
+                    mask(&message.content),
+                    message.tool_name,
+                    message.timestamp,
+                    message.raw.as_deref().map(mask),
+                )
             })
             .collect())
     }

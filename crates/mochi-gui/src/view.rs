@@ -142,6 +142,35 @@ pub struct MessageView {
     pub tool_name: Option<String>,
     pub timestamp: Option<i64>,
     pub raw: Option<String>,
+    /// How many characters `content` has, and `raw` after it.
+    ///
+    /// Counted here, once, because the transcript cuts long entries and says
+    /// how much it cut: counting from the string itself would walk every byte
+    /// of a megabyte-long tool result on every repaint, for every entry on
+    /// screen. [`message_view`] is what keeps these honest.
+    pub content_chars: usize,
+    pub raw_chars: usize,
+}
+
+/// Build a transcript entry from its already-masked text.
+pub fn message_view(
+    seq: i64,
+    role: Role,
+    content: String,
+    tool_name: Option<String>,
+    timestamp: Option<i64>,
+    raw: Option<String>,
+) -> MessageView {
+    MessageView {
+        content_chars: content.chars().count(),
+        raw_chars: raw.as_deref().map(|raw| raw.chars().count()).unwrap_or(0),
+        seq,
+        role,
+        content,
+        tool_name,
+        timestamp,
+        raw,
+    }
 }
 
 /// A full-text match, for the search results pane.

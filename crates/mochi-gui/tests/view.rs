@@ -15,8 +15,8 @@
 //! Grouping and filtering — the decisions the sidebar makes, made where they
 //! can be checked without a window.
 
-use mochi_core::model::{ParseStatus, ToolId};
-use mochi_gui::view::{groups, RepoView, SessionView, Snapshot};
+use mochi_core::model::{ParseStatus, Role, ToolId};
+use mochi_gui::view::{groups, message_view, RepoView, SessionView, Snapshot};
 
 fn repo(id: i64, name: &str) -> RepoView {
     RepoView {
@@ -143,6 +143,29 @@ fn a_session_with_no_title_is_labelled_by_the_id_a_user_would_type() {
 
     let blank = session(21, None, Some("   "));
     assert_eq!(blank.label(), "sess-21");
+}
+
+/// The transcript cuts long entries and says how much it cut. The count is
+/// taken once, here, rather than by walking the body on every repaint — and
+/// characters are not bytes, so it has to be a count of characters.
+#[test]
+fn an_entry_carries_the_length_of_each_of_its_bodies() {
+    let view = message_view(
+        0,
+        Role::ToolResult,
+        "日本語".to_string(),
+        None,
+        None,
+        Some("{\"text\":\"日本語\"}".to_string()),
+    );
+
+    assert_eq!(view.content_chars, 3);
+    assert_eq!(view.raw_chars, 14);
+
+    // An entry Mochi understood keeps no raw form, and counts nothing for it.
+    let plain = message_view(1, Role::User, "hello".to_string(), None, None, None);
+    assert_eq!(plain.content_chars, 5);
+    assert_eq!(plain.raw_chars, 0);
 }
 
 /// FR-4.2: the row has to say why a session is odd, not just list it.
