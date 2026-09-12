@@ -182,13 +182,41 @@ fn the_window_draws_the_index_it_was_given() {
     let mut window = Headless::start();
     let painted = window.settle("why does deploy fail");
 
-    // The three columns of layout 1b: the repository and its sessions, the
-    // transcript, and what the session is.
+    // The four columns: which repository, which session, the transcript, and
+    // what the session is.
     assert!(painted.contains("Repositories"), "{painted}");
     assert!(painted.contains("alpha"), "{painted}");
     assert!(painted.contains("why does deploy fail"), "{painted}");
     assert!(painted.contains("Claude Code"), "{painted}");
     assert!(painted.contains("sess-1"), "{painted}");
+}
+
+/// FR-9.1: the left-hand side asks two questions in two panes — which
+/// repository, then which of its sessions — rather than folding the second
+/// inside the first, and each row says enough to be chosen by.
+#[test]
+fn the_repository_and_the_session_are_chosen_in_panes_of_their_own() {
+    let mut window = Headless::start();
+    let painted = window.settle("why does deploy fail");
+
+    // The repository pane: every repository, the whole index above them, and
+    // what each row holds.
+    assert!(painted.contains("Repositories"), "{painted}");
+    assert!(painted.contains("All repositories"), "{painted}");
+    assert!(painted.contains("/Users/you/code/alpha"), "{painted}");
+    assert!(
+        painted.contains("cc 1 · 1970-01-01"),
+        "the row does not say what wrote its sessions or when: {painted}"
+    );
+
+    // The session pane: the scope it is showing, a dated heading, and a row
+    // that says when the session was, how long it is and where it was.
+    assert!(painted.contains("1 session"), "{painted}");
+    assert!(painted.contains("OLDER"), "{painted}");
+    assert!(
+        painted.contains("1970-01-01 · 2 msgs · main"),
+        "the session row does not say enough to choose by: {painted}"
+    );
 }
 
 /// NFR-3.3, end to end: this is the assertion that covers the actual promise —

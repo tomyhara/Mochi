@@ -12,12 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! The window: layout 1b, "transcript first" (FR-9.1).
+//! The window: "transcript first" (mock `1b`) with the left-hand selection of
+//! mock `1a` (FR-9.1).
 //!
-//! Repositories and their sessions on the left, the transcript in the middle,
-//! what the session is and what can be done with it on the right — the same
-//! three columns doc/ui-spec.md describes, drawn by Mochi itself rather than
-//! by a browser.
+//! Four columns. Repositories, then the sessions of the one picked, then the
+//! transcript, then what the session is and what can be done with it. The two
+//! narrow panes on the left were one nested list until it turned out that a
+//! tree of repositories with sessions folded inside them reads as a single
+//! undifferentiated list: nothing on screen says which rows are the things you
+//! choose between and which are the things you open. Mock `1a` had already
+//! answered that — one pane per question — so the left-hand side is now its,
+//! while the wide transcript and the metadata rail stay `1b`'s.
 //!
 //! Nothing in here reads a file or a database. The panels draw a [`Snapshot`]
 //! and send [`Request`]s; `worker.rs` does the rest. That is what keeps a
@@ -33,13 +38,15 @@ use egui::{Align, FontId, Key, Layout, Modifiers, RichText, TextFormat};
 use mochi_core::index::{SNIPPET_END, SNIPPET_START};
 use mochi_core::model::{ParseStatus, Role, ToolId};
 
-use crate::format::{bytes, clock, elide_middle, one_line, thousands, timestamp};
+use crate::format::{
+    bytes, clock, date, elide_middle, hour_minute, now_ms, one_line, relative, thousands, timestamp,
+};
 use crate::theme::Palette;
-use crate::view::{groups, Group, HitView, MessageView, SessionView, Snapshot};
+use crate::view::{
+    repositories, scope_exists, scope_title, sections, HitView, MessageView, RepoRow, Scope,
+    Section, SessionView, Snapshot,
+};
 use crate::worker::{About, Request, Response, Worker};
-
-/// How many sessions a repository shows before it has to be opened (FR-9.1).
-const COLLAPSED: usize = 5;
 
 /// How much of one entry is drawn before the reader has to ask for the rest.
 ///
@@ -142,17 +149,25 @@ struct Awaiting {
     generation: Generation,
 }
 
-/// The sidebar's groups, and what they were grouped from.
+/// What the two left-hand panes are showing, and what it was built from.
 ///
-/// Grouping walks every session, and the sidebar is drawn on every frame —
-/// including every frame of typing in the filter box and of scrolling. On an
-/// index of the size NFR-1 is written for that is work worth not repeating
-/// while its answer cannot have changed.
-struct Grouped {
-    /// Which snapshot these were grouped from, by number.
+/// Both walk every session, and both are drawn on every frame — including
+/// every frame of typing in a filter box and of scrolling. On an index of the
+/// size NFR-1 is written for that is work worth not repeating while its answer
+/// cannot have changed.
+struct Listing {
+    /// Which snapshot this was built from, by number.
     snapshot: u64,
+    repo_filter: String,
     filter: String,
-    groups: Vec<Group>,
+    scope: Scope,
+    /// When it was built. The dated headings are relative to it, so a window
+    /// left open across midnight has to be told.
+    now: i64,
+    repos: Vec<RepoRow>,
+    sections: Vec<Section>,
+    /// How many sessions the sections hold between them.
+    listed: usize,
 }
 
 pub struct App {
@@ -162,18 +177,22 @@ pub struct App {
     /// done on one — the sidebar's grouping — is recognised as still standing,
     /// without comparing ten thousand sessions to find out.
     snapshots: u64,
-    grouped: Option<Grouped>,
+    listing: Option<Listing>,
     transcript: Option<Transcript>,
     awaiting: Option<Awaiting>,
     /// Bumped whenever what has been read stops being what is true: a rescan,
     /// or a change of masking.
     generation: Generation,
     selected: Option<i64>,
+    /// Which repository the session pane is showing.
+    scope: Scope,
+    /// Narrows the repository pane, by name and path.
+    repo_filter: String,
+    /// Narrows the session pane, by title, id and tool.
     filter: String,
     query: String,
     hits: Vec<HitView>,
     tab: Tab,
-    opened: HashSet<String>,
     expanded: HashSet<i64>,
     shown: usize,
     theme: ThemeChoice,
@@ -207,16 +226,17 @@ impl App {
             worker,
             snapshot: Snapshot::default(),
             snapshots: 0,
-            grouped: None,
+            listing: None,
             transcript: None,
             awaiting: None,
             generation: 0,
             selected: None,
+            scope: Scope::All,
+            repo_filter: String::new(),
             filter: String::new(),
             query: String::new(),
             hits: Vec::new(),
             tab: Tab::Transcript,
-            opened: HashSet::new(),
             expanded: HashSet::new(),
             shown: PAGE,
             theme: ThemeChoice::System,
@@ -236,24 +256,39 @@ impl App {
         self.snapshot.sessions.iter().find(|s| s.id == id)
     }
 
-    /// The sidebar's groups, grouped again only if the snapshot or the filter
-    /// has changed since they last were.
+    /// What the left-hand panes show, built again only if something it was
+    /// built from has changed since it last was.
     ///
     /// Taken out of the window rather than borrowed from it, because drawing a
-    /// row can select a session, and a selection changes the window while the
-    /// rows are still being drawn. The caller puts them back.
-    fn grouping(&mut self) -> Grouped {
-        match self.grouped.take() {
-            Some(grouped)
-                if grouped.snapshot == self.snapshots && grouped.filter == self.filter =>
+    /// row can change the selection or the scope, and both change the window
+    /// while the rows are still being drawn. The caller puts it back.
+    fn listing(&mut self) -> Listing {
+        let now = now_ms();
+        match self.listing.take() {
+            Some(listing)
+                if listing.snapshot == self.snapshots
+                    && listing.repo_filter == self.repo_filter
+                    && listing.filter == self.filter
+                    && listing.scope == self.scope
+                    // "Today" stops meaning today at midnight, and a window
+                    // left open overnight would go on saying it.
+                    && (now - listing.now).abs() < 60_000 =>
             {
-                grouped
+                listing
             }
-            _ => Grouped {
-                snapshot: self.snapshots,
-                filter: self.filter.clone(),
-                groups: groups(&self.snapshot, &self.filter),
-            },
+            _ => {
+                let sections = sections(&self.snapshot, self.scope, &self.filter, now);
+                Listing {
+                    snapshot: self.snapshots,
+                    repo_filter: self.repo_filter.clone(),
+                    filter: self.filter.clone(),
+                    scope: self.scope,
+                    now,
+                    repos: repositories(&self.snapshot, &self.repo_filter),
+                    listed: sections.iter().map(|section| section.sessions.len()).sum(),
+                    sections,
+                }
+            }
         }
     }
 
@@ -336,6 +371,12 @@ impl App {
                     self.error = None;
                     self.snapshot = *snapshot;
                     self.snapshots += 1;
+                    // A rescan can merge two repositories into one, or drop
+                    // the one being shown. A pane pointed at a repository that
+                    // is no longer there would just look empty.
+                    if !scope_exists(&self.snapshot, self.scope) {
+                        self.scope = Scope::All;
+                    }
                     // Open what the user was doing last (FR-4.4), but never
                     // move the selection out from under them on a rescan.
                     let still_there = self
@@ -451,7 +492,13 @@ impl eframe::App for App {
 
         self.topbar(ui, palette);
         self.statusbar(ui, palette);
-        self.sidebar(ui, palette);
+        // Held while the rows are drawn — clicking one calls back into the
+        // window — and put back afterwards, so that the next frame is free
+        // unless something it was built from has changed.
+        let listing = self.listing();
+        self.repositories_pane(ui, palette, &listing);
+        self.sessions_pane(ui, palette, &listing);
+        self.listing = Some(listing);
         self.rail(ui, palette);
         self.centre(ui, palette);
 
@@ -635,11 +682,18 @@ impl App {
             });
     }
 
-    fn sidebar(&mut self, ui: &mut egui::Ui, palette: Palette) {
-        egui::Panel::left("sidebar")
+    /// The first pane: which repository (FR-9.1, mock `1a`).
+    ///
+    /// One row per repository, plus the three views that cut across them: the
+    /// whole index, the sessions that belong to no repository, and the ones
+    /// whose original file the tool deleted. Picking a row is the only thing
+    /// this pane does — it never opens a session — which is the distinction
+    /// the nested sidebar could not make.
+    fn repositories_pane(&mut self, ui: &mut egui::Ui, palette: Palette, listing: &Listing) {
+        egui::Panel::left("repositories")
             .resizable(true)
-            .default_size(300.0)
-            .size_range(220.0..=460.0)
+            .default_size(236.0)
+            .size_range(180.0..=360.0)
             .frame(
                 egui::Frame::default()
                     .fill(palette.bg)
@@ -649,11 +703,149 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("Repositories").strong());
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if !self.filter.is_empty() && ui.small_button("clear").clicked() {
-                            self.filter.clear();
-                        }
+                        // What is listed, not what the index holds: next to a
+                        // filtered list, the total would be a lie about the
+                        // rows underneath it.
+                        let listed = listing
+                            .repos
+                            .iter()
+                            .filter(|repo| matches!(repo.scope, Scope::Repo(_)))
+                            .count();
+                        ui.label(
+                            RichText::new(thousands(listed as i64))
+                                .color(palette.text_muted)
+                                .size(11.0),
+                        );
                     });
                 });
+                ui.add_space(6.0);
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.repo_filter)
+                        .hint_text("Filter repositories")
+                        .desired_width(f32::INFINITY),
+                );
+                ui.add_space(8.0);
+
+                if listing.repos.is_empty() {
+                    ui.label(
+                        RichText::new(if self.snapshot.sessions.is_empty() {
+                            "Nothing indexed yet. Rescan to look again."
+                        } else {
+                            "No repository matches that filter."
+                        })
+                        .color(palette.text_muted)
+                        .size(12.0),
+                    );
+                    return;
+                }
+
+                egui::ScrollArea::vertical()
+                    .id_salt("repositories-scroll")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for repo in &listing.repos {
+                            if self.repository_row(ui, palette, repo, listing.now) {
+                                self.scope = repo.scope;
+                            }
+                        }
+                    });
+            });
+    }
+
+    /// One row of the repository pane: what it is called, how many sessions it
+    /// holds, where it is, and how those sessions split between the tools.
+    fn repository_row(
+        &self,
+        ui: &mut egui::Ui,
+        palette: Palette,
+        repo: &RepoRow,
+        now: i64,
+    ) -> bool {
+        let selected = self.scope == repo.scope;
+        card(ui, palette, selected, ("repo", repo.scope), |ui| {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(one_line(&repo.name, 22)).strong().size(13.0));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(
+                        RichText::new(thousands(repo.sessions as i64))
+                            .color(palette.text_muted)
+                            .size(11.0),
+                    );
+                });
+            });
+            if let Some(path) = &repo.path {
+                ui.label(
+                    RichText::new(elide_middle(path, 32))
+                        .color(palette.text_muted)
+                        .size(11.0),
+                )
+                .on_hover_text(path);
+            }
+            // What the sessions were written by, and when the last one was —
+            // the two things that tell one repository from another at a
+            // glance.
+            let mut meta: Vec<String> = repo
+                .by_tool
+                .iter()
+                .map(|(tool, count)| format!("{} {}", short(*tool).to_lowercase(), count))
+                .collect();
+            if repo.sessions > 0 {
+                meta.push(relative(repo.updated_at, now));
+            }
+            if !meta.is_empty() {
+                ui.label(
+                    RichText::new(meta.join(" · "))
+                        .color(palette.text_muted)
+                        .size(10.5),
+                );
+            }
+        })
+    }
+
+    /// The second pane: which session (FR-9.1, mock `1a`).
+    ///
+    /// Only the sessions of the repository the pane next door has picked, in
+    /// dated sections, each row saying when it was, how long it is and which
+    /// branch it was on — so that choosing between two sessions of the same
+    /// repository is possible without opening both.
+    fn sessions_pane(&mut self, ui: &mut egui::Ui, palette: Palette, listing: &Listing) {
+        egui::Panel::left("sessions")
+            .resizable(true)
+            .default_size(324.0)
+            .size_range(240.0..=520.0)
+            .frame(
+                egui::Frame::default()
+                    .fill(palette.surface)
+                    .inner_margin(egui::Margin::same(10)),
+            )
+            .show(ui, |ui| {
+                let (title, path) = scope_title(&self.snapshot, self.scope);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(one_line(&title, 24)).strong());
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(
+                            RichText::new(format!(
+                                "{} {}",
+                                thousands(listing.listed as i64),
+                                if listing.listed == 1 {
+                                    "session"
+                                } else {
+                                    "sessions"
+                                }
+                            ))
+                            .color(palette.text_muted)
+                            .size(11.0),
+                        );
+                    });
+                });
+                if let Some(path) = &path {
+                    ui.label(
+                        RichText::new(elide_middle(path, 44))
+                            .color(palette.text_muted)
+                            .size(11.0),
+                    )
+                    .on_hover_text(path);
+                }
                 ui.add_space(6.0);
                 ui.add(
                     egui::TextEdit::singleline(&mut self.filter)
@@ -662,79 +854,55 @@ impl App {
                 );
                 ui.add_space(8.0);
 
-                // Held while the rows are drawn — clicking one calls back into
-                // the window — and put back below, so that the next frame is
-                // free unless the snapshot or the filter has changed.
-                let grouped = self.grouping();
-                if grouped.groups.is_empty() {
-                    ui.label(
-                        RichText::new(if self.snapshot.sessions.is_empty() {
-                            "Nothing indexed yet. Rescan to look again."
-                        } else {
-                            "Nothing matches that filter."
-                        })
-                        .color(palette.text_muted),
-                    );
-                    self.grouped = Some(grouped);
+                if listing.sections.is_empty() {
+                    // Which nothing it is: an empty index, a filter that
+                    // matched none of it, or a repository that really has no
+                    // sessions are three different things to do next about
+                    // (FR-9.6).
+                    let reason = if !self.filter.trim().is_empty() {
+                        "Nothing here matches that filter."
+                    } else if self.snapshot.sessions.is_empty() {
+                        "Nothing indexed yet. Rescan to look again."
+                    } else {
+                        match self.scope {
+                            Scope::Repo(_) => "This repository has no sessions in the index.",
+                            Scope::Unassigned => "Every session belongs to a repository.",
+                            Scope::Archived => "No tool has deleted a transcript Mochi has read.",
+                            Scope::All => "Nothing to show.",
+                        }
+                    };
+                    ui.label(RichText::new(reason).color(palette.text_muted).size(12.0));
                     return;
                 }
 
                 egui::ScrollArea::vertical()
-                    .id_salt("sidebar-scroll")
+                    .id_salt("sessions-scroll")
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        for group in &grouped.groups {
-                            let open = self.opened.contains(&group.key);
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new(one_line(&group.name, 26)).strong());
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    ui.label(
-                                        RichText::new(group.sessions.len().to_string())
-                                            .color(palette.text_muted)
-                                            .size(11.0),
-                                    );
-                                });
-                            });
-                            if let Some(path) = &group.path {
-                                ui.label(
-                                    RichText::new(elide_middle(path, 38))
-                                        .color(palette.text_muted)
-                                        .size(11.0),
-                                )
-                                .on_hover_text(path);
-                            }
-
-                            let limit = if open {
-                                group.sessions.len()
-                            } else {
-                                COLLAPSED.min(group.sessions.len())
-                            };
-                            for index in &group.sessions[..limit] {
+                        for section in &listing.sections {
+                            section_heading(ui, palette, section.label);
+                            for index in &section.sessions {
                                 let session = &self.snapshot.sessions[*index];
                                 let selected = self.selected == Some(session.id);
-                                let job = row(session, palette, ui);
-                                if ui.selectable_label(selected, job).clicked() {
+                                let today = section.is_today();
+                                let clicked =
+                                    card(ui, palette, selected, ("session", session.id), |ui| {
+                                        ui.add(egui::Label::new(row(session, palette, ui)).wrap());
+                                        ui.label(
+                                            RichText::new(meta(session, today))
+                                                .color(palette.text_muted)
+                                                .size(10.5),
+                                        );
+                                    });
+                                if clicked {
                                     let id = session.id;
                                     self.select(id);
                                     self.tab = Tab::Transcript;
                                 }
                             }
-
-                            let hidden = group.sessions.len() - limit;
-                            if hidden > 0 {
-                                if ui.small_button(format!("Show {hidden} more")).clicked() {
-                                    self.opened.insert(group.key.clone());
-                                }
-                            } else if open
-                                && group.sessions.len() > COLLAPSED
-                                && ui.small_button("Show fewer").clicked()
-                            {
-                                self.opened.remove(&group.key);
-                            }
-                            ui.add_space(10.0);
+                            ui.add_space(4.0);
                         }
                     });
-                self.grouped = Some(grouped);
             });
     }
 
@@ -1214,7 +1382,90 @@ fn entry(
     toggled
 }
 
-/// The sidebar row: a tool tag, the title, and any warnings.
+/// One clickable row of a left-hand pane, however many lines it draws.
+///
+/// egui's `selectable_label` is one line of one string, which is what forced
+/// the old sidebar to say so little about each session. This is the same
+/// bargain made the other way: draw whatever the row needs, then make the
+/// whole block behave like one control.
+fn card<K: std::hash::Hash + std::fmt::Debug>(
+    ui: &mut egui::Ui,
+    palette: Palette,
+    selected: bool,
+    id: K,
+    add: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    let fill = if selected {
+        palette.surface_2
+    } else {
+        egui::Color32::TRANSPARENT
+    };
+    let inner = egui::Frame::default()
+        .fill(fill)
+        .corner_radius(6)
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 3.0;
+            add(ui);
+        });
+
+    let rect = inner.response.rect;
+    let response = ui.interact(rect, ui.make_persistent_id(id), egui::Sense::click());
+    if selected {
+        // A bar down the edge as well as the fill: rows here are two and three
+        // lines tall, and at that size a slightly lighter background is easy
+        // to miss.
+        ui.painter().rect_filled(
+            egui::Rect::from_min_size(rect.min, egui::vec2(2.0, rect.height())),
+            1.0,
+            palette.accent,
+        );
+    } else if response.hovered() {
+        ui.painter().rect_stroke(
+            rect,
+            6.0,
+            egui::Stroke::new(1.0, palette.border),
+            egui::StrokeKind::Inside,
+        );
+    }
+    if response.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    ui.add_space(2.0);
+    response.clicked()
+}
+
+/// A dated heading in the session pane.
+fn section_heading(ui: &mut egui::Ui, palette: Palette, label: &str) {
+    ui.add_space(6.0);
+    ui.label(
+        RichText::new(label.to_uppercase())
+            .color(palette.text_muted)
+            .size(10.0)
+            .monospace(),
+    );
+    ui.add_space(3.0);
+}
+
+/// The second line of a session row: when, how long, and on which branch.
+///
+/// Under a heading that already says which day it is, the clock alone is
+/// enough; anywhere else the date has to be there.
+fn meta(session: &SessionView, today: bool) -> String {
+    let mut parts = vec![if today {
+        hour_minute(session.updated_at)
+    } else {
+        date(session.updated_at)
+    }];
+    parts.push(format!("{} msgs", thousands(session.message_count)));
+    if let Some(branch) = &session.git_branch {
+        parts.push(one_line(branch, 20));
+    }
+    parts.join(" · ")
+}
+
+/// The session row's first line: a tool tag, the title, and any warnings.
 fn row(session: &SessionView, palette: Palette, ui: &egui::Ui) -> LayoutJob {
     let mut job = LayoutJob::default();
     job.append(
@@ -1228,7 +1479,7 @@ fn row(session: &SessionView, palette: Palette, ui: &egui::Ui) -> LayoutJob {
         },
     );
     job.append(
-        &one_line(session.label(), 34),
+        &one_line(session.label(), 44),
         8.0,
         TextFormat {
             font_id: FontId::proportional(13.0),

@@ -165,8 +165,9 @@ jobs:
           modified, and nothing is sent anywhere.
 
           **One file, nothing to install.** Download it, run it, and the window
-          opens: the repositories and their sessions on the left, the transcript
-          in the middle, what each session is on the right. The same file is the
+          opens: your repositories on the left, the sessions of the one you pick
+          beside them, the transcript in the middle, what each session is on the
+          right. The same file is the
           command line tool — give it a subcommand (\`mochi sessions\`,
           \`mochi search ECONNRESET\`) and it prints instead. There is no
           installer, no web view and no runtime to install first; Mochi draws
