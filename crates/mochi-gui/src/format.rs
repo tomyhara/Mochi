@@ -113,6 +113,64 @@ pub fn timestamp(milliseconds: Option<i64>) -> String {
     )
 }
 
+/// Now, in milliseconds since the epoch.
+///
+/// The one impure function here. It is in this module so that everything that
+/// depends on the time of day takes it as an argument and can be tested at any
+/// date, rather than reading the clock halfway down a drawing routine.
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|since| since.as_millis() as i64)
+        // Before 1970. The clock is wrong rather than the session, and the
+        // epoch is the least misleading thing to say about it.
+        .unwrap_or(0)
+}
+
+/// How long ago, in the shortest form that is still true.
+///
+/// Used on rows where the exact time is not the point — which repository was
+/// touched last — while the rail keeps showing the timestamp in full.
+pub fn relative(milliseconds: Option<i64>, now: i64) -> String {
+    let Some(ms) = milliseconds else {
+        return "—".to_string();
+    };
+    let seconds = (now - ms) / 1000;
+    // A session recorded a moment in the future means the clock moved, not
+    // that it has not happened yet.
+    if seconds < 60 {
+        return "just now".to_string();
+    }
+    if seconds < 3_600 {
+        return format!("{}m ago", seconds / 60);
+    }
+    if seconds < 86_400 {
+        return format!("{}h ago", seconds / 3_600);
+    }
+    if seconds < 86_400 * 30 {
+        return format!("{}d ago", seconds / 86_400);
+    }
+    date(Some(ms))
+}
+
+/// The date part only, for a row whose heading already says which day it is.
+pub fn date(milliseconds: Option<i64>) -> String {
+    let Some(ms) = milliseconds else {
+        return "—".to_string();
+    };
+    let (date, _) = civil_from_millis(ms);
+    format!("{:04}-{:02}-{:02}", date.0, date.1, date.2)
+}
+
+/// Hours and minutes, for a row under a heading that says which day it is.
+pub fn hour_minute(milliseconds: Option<i64>) -> String {
+    let Some(ms) = milliseconds else {
+        return "—".to_string();
+    };
+    let (_, time) = civil_from_millis(ms);
+    format!("{:02}:{:02}", time.0, time.1)
+}
+
 /// Just the clock part, for the left margin of a transcript entry.
 pub fn clock(milliseconds: Option<i64>) -> String {
     let Some(ms) = milliseconds else {

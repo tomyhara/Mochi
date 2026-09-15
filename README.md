@@ -77,9 +77,15 @@ cargo build --release -p mochi-cli
 
 ## The window
 
-Layout `1b` from the mockups: repositories and their sessions on the left, the
-transcript in the middle, what the session is and what can be done with it on
-the right. On first run it scans your session stores and shows what it found.
+Four columns: your repositories, then the sessions of the one you picked, then
+the transcript, then what that session is and what can be done with it. Layout
+`1b` from the mockups for the last two, and `1a` for the two on the left —
+choosing a repository and choosing a session are different questions, and a
+single nested list made them look like the same one. Each repository row says
+how many sessions it holds, which tools wrote them and how long ago; each
+session row says when it was, how long it is and which branch it was on, under
+a heading that says which day. On first run it scans your session stores and
+shows what it found.
 
 It is drawn by Mochi itself — `egui`, reaching the GPU through Direct3D 12 on
 Windows and Metal on macOS. There is no web view, which is why there is only

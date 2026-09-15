@@ -14,7 +14,9 @@
 
 //! The text helpers, which are where the window's edge cases live.
 
-use mochi_gui::format::{bytes, clock, elide_middle, one_line, thousands, timestamp};
+use mochi_gui::format::{
+    bytes, clock, date, elide_middle, hour_minute, now_ms, one_line, relative, thousands, timestamp,
+};
 
 #[test]
 fn a_short_path_is_left_alone() {
@@ -84,4 +86,50 @@ fn the_epoch_and_before_it_do_not_panic() {
 fn a_missing_time_says_so() {
     assert_eq!(timestamp(None), "—");
     assert_eq!(clock(None), "");
+}
+
+/// The repository rows say how long ago rather than when, because on that row
+/// the point is which one you touched last.
+#[test]
+fn how_long_ago_is_said_in_the_largest_unit_that_is_still_true() {
+    // 2026-09-11T01:34:56Z, and a clock to measure it from.
+    let now = 1_789_090_496_000;
+    let ago = |seconds: i64| relative(Some(now - seconds * 1000), now);
+
+    assert_eq!(ago(0), "just now");
+    assert_eq!(ago(59), "just now");
+    assert_eq!(ago(60), "1m ago");
+    assert_eq!(ago(3_599), "59m ago");
+    assert_eq!(ago(3_600), "1h ago");
+    assert_eq!(ago(86_400), "1d ago");
+    assert_eq!(ago(29 * 86_400), "29d ago");
+    // Past a month, how long ago stops meaning anything and the date is what
+    // a reader can actually place.
+    assert_eq!(ago(60 * 86_400), "2026-07-13");
+}
+
+/// A clock that has run ahead, or a session written a second into the future,
+/// must not come out as a negative age.
+#[test]
+fn a_time_in_the_future_is_not_counted_backwards() {
+    let now = 1_789_090_496_000;
+    assert_eq!(relative(Some(now + 86_400_000), now), "just now");
+}
+
+#[test]
+fn the_date_and_the_clock_can_be_had_separately() {
+    // 2026-09-11T01:34:56Z
+    assert_eq!(date(Some(1_789_090_496_000)), "2026-09-11");
+    assert_eq!(hour_minute(Some(1_789_090_496_000)), "01:34");
+    assert_eq!(date(None), "—");
+    assert_eq!(hour_minute(None), "—");
+    assert_eq!(relative(None, 0), "—");
+}
+
+/// The one impure helper: it has to be a plausible moment in this century,
+/// because every dated heading in the session pane is measured from it.
+#[test]
+fn the_clock_reads_the_present() {
+    // 2020-01-01, comfortably before this code was written.
+    assert!(now_ms() > 1_577_836_800_000);
 }
